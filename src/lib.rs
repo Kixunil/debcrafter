@@ -37,7 +37,6 @@ impl PackageConfig for ServicePackageSpec {
 #[derive(Deserialize)]
 pub struct Package {
     pub name: String,
-    pub version: String,
     #[serde(default)]
     pub variants: HashSet<String>,
     #[serde(flatten)]

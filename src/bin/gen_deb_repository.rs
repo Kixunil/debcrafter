@@ -18,6 +18,7 @@ pub struct Repository {
 #[derive(Deserialize)]
 pub struct Source {
     // TODO: enum with validation instead?
+    pub version: String,
     pub section: String,
     pub packages: HashSet<String>,
 }
@@ -91,7 +92,7 @@ fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: boo
 }
 
 fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &Source, maintainer: &str) {
-    let dir = dest.join(name);
+    let dir = dest.join(format!("{}-{}", name, source.version));
     let deb_dir = dir.join("debian");
     fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
     copy_changelog(&deb_dir, source_dir, name);
