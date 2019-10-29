@@ -84,8 +84,6 @@ Example of `Service` package specification:
 ```toml
 # Name of the package
 name = "bitcoin-mainnet"
-# Upstream version
-version = "0.18.1"
 # Name of the package containing binaries
 bin_package = "bitcoind"
 # Binary that has to be executed
@@ -175,7 +173,6 @@ Configuration extensions are a little bit simpler:
 
 ```toml
 name = "bitcoin-fullchain-mainnet"
-version = "0.18.1"
 # Tells which package is extended by this one
 extends = "bitcoin-mainnet"
 # Tells that some file(s) of extended package is (are)
@@ -200,16 +197,20 @@ maintainer = "Martin Habostiak <martin.habovstiak@gmail.com>"
 
 # Each source defines a different source directory
 [sources.bitcoin]
+# Upstream version
+version = "0.18.1"
 section = "net"
 # Packages available within the source
 # .sps files must be placed in the same directory this file is in
 packages = ["bitcoin-mainnet", "bitcoin-fullchain-mainnet", "bitcoin-txindex-mainnet", "bitcoin-zmq-mainnet"]
 
 [sources.btc-rpc-proxy]
+version = "0.1.0"
 section = "net"
 packages = ["bitcoin-rpc-proxy-mainnet", "bitcoin-timechain-mainnet"]
 
 [sources.electrs]
+version = "0.7.0"
 section = "net"
 packages = ["electrs-mainnet"]
 ```
