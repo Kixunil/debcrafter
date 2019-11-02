@@ -42,14 +42,24 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         writeln!(out, "Type=exec")?;
         write!(out, "ExecStart={}", instance.spec.binary)?;
         let conf_dir_name = if let Some(conf_dir) = &instance.spec.conf_d {
-            write!(out, " {} /etc/{}/{}", conf_dir.param, instance.name, conf_dir.name)?;
+            if conf_dir.param.ends_with('=') {
+                write!(out, " {}/etc/{}/{}", conf_dir.param, instance.name, conf_dir.name)?;
+            } else {
+                write!(out, " {} /etc/{}/{}", conf_dir.param, instance.name, conf_dir.name)?;
+            }
             Some(conf_dir.name.as_ref())
         } else {
             None
         };
         if let Some(param) = &instance.spec.conf_param {
-            for file in filter_configs(&instance.spec.config, conf_dir_name) {
-                write!(out, " {} /etc/{}/{}", param, instance.name, file)?;
+            if param.ends_with('=') {
+                for file in filter_configs(&instance.spec.config, conf_dir_name) {
+                    write!(out, " {}/etc/{}/{}", param, instance.name, file)?;
+                }
+            } else {
+                for file in filter_configs(&instance.spec.config, conf_dir_name) {
+                    write!(out, " {} /etc/{}/{}", param, instance.name, file)?;
+                }
             }
         }
         writeln!(out)?;
