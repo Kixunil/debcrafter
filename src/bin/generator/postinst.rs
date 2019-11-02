@@ -145,9 +145,16 @@ fn write_var_plain<W: Write>(mut out: W, config: &Config, name: &str) -> io::Res
 
 fn write_stringly_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
     writeln!(&mut out, "echo -n \"{}=\\\"\" >> \"{}\"", name, config.file_name)?;
-    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n'>> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
     writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")
+    writeln!(&mut out, "EOF")?;
+    writeln!(&mut out, ") -gt 1 ]; then")?;
+    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "$RET")?;
+    writeln!(&mut out, "EOF")?;
+    writeln!(&mut out, "else")?;
+    writeln!(&mut out, "echo '\"' >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "fi")
 }
 
 fn write_unquoted_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
