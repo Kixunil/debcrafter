@@ -33,6 +33,7 @@ pub trait HandlePostinst: Sized {
 pub trait Package<'a>: PackageConfig {
     fn config_pkg_name(&self) -> &str;
     fn config_sub_dir(&self) -> Cow<'a, str>;
+    fn internal_config_sub_dir(&self) -> Cow<'a, str>;
     fn service_name(&self) -> Option<&str>;
     fn service_user(&self) -> Option<&str>;
     fn service_group(&self) -> Option<&str>;
@@ -46,6 +47,10 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
     }
 
     fn config_sub_dir(&self) -> Cow<'a, str> {
+        (&**self.name).into()
+    }
+
+    fn internal_config_sub_dir(&self) -> Cow<'a, str> {
         (&**self.name).into()
     }
 
@@ -80,6 +85,21 @@ impl<'a> Package<'a> for PackageInstance<'a> {
     }
 
     fn config_sub_dir(&self) -> Cow<'a, str> {
+        if let PackageSpec::ConfExt(confext) = &self.spec {
+            self
+                .get_include(&confext.extends)
+                .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
+                .instantiate(self.variant, None)
+                .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
+                .config_sub_dir()
+                .into_owned()
+                .into()
+        } else {
+            self.name.clone().into_owned().into()
+        }
+    }
+
+    fn internal_config_sub_dir(&self) -> Cow<'a, str> {
         if let PackageSpec::ConfExt(confext) = &self.spec {
             self
                 .get_include(&confext.extends)

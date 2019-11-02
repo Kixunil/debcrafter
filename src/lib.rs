@@ -205,7 +205,7 @@ pub struct Config {
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum ConfType {
-    Static { content: String },
+    Static { content: String, #[serde(default)] internal: bool, },
     Dynamic {
         format: ConfFormat,
         #[serde(default)]
