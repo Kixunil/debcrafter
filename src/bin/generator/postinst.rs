@@ -52,7 +52,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         if config.public {
             writeln!(self.out, "chmod 644 {}", config.file_name)
         } else {
-            writeln!(self.out, "chmod 600 {}", config.file_name)
+            writeln!(self.out, "chmod 640 {}", config.file_name)
         }
     }
 
