@@ -6,7 +6,8 @@ Crafts complex debian packages from *very rich* specification files
 About
 -----
 
-**Warning: debcrafter is huge WIP! Stuff will definitelly change, but if you're willing to join adventure, PRs are open. This thing is not well-tested yet!**
+**Warning: debcrafter is huge WIP! Stuff will definitelly change, but if you're willing to join adventure, PRs are open. This thing is not well-tested yet!
+I believe the code has directory-traversal vulnerability. Don't run on untrusted inputs!**
 
 If you ever attempted to build Debian packages that work together very well, you probably found out it's a tedious task.
 
@@ -43,6 +44,7 @@ Generated files
 - [x] postrm
 - [x] compat
 - [x] install
+- [ ] links (currently handled by install, but it sucks)
 - [ ] dirs
 - [ ] desktop
 - [ ] conffiles (not needed actually thanks to DH)
