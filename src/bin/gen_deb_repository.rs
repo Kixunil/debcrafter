@@ -28,7 +28,6 @@ static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::
     ("install", crate::generator::install::generate),
     ("postinst", crate::generator::postinst::generate),
     ("postrm", crate::generator::postrm::generate),
-    ("service", crate::generator::service::generate),
     ("templates", crate::generator::templates::generate),
     ("triggers", crate::generator::triggers::generate),
 ];
@@ -116,6 +115,11 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &Source, maint
             for &(extension, generator) in FILE_GENERATORS {
                 let out = create_lazy_builder(&deb_dir, &package.name, extension, false);
                 generator(&instance, out).expect("Failed to generate file");
+            }
+
+            if let Some(service_name) = instance.service_name() {
+                let out = create_lazy_builder(&deb_dir, &package.name, &format!("{}.service", service_name), false);
+                crate::generator::service::generate(&instance, out).expect("Failed to generate file");
             }
 
             let out = create_lazy_builder(&deb_dir, "control", "", true);
