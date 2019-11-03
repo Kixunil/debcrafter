@@ -190,33 +190,34 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     handler.write_external_var(&config_ctx, pkg_name, var, ty, &var_spec.name)?;
                 }
 
-                for (var, var_spec) in hvars {
-                    match &var_spec.val {
-                        HiddenVarVal::Constant(val) => handler.write_hidden_const(&config_ctx, var, &var_spec.ty, val)?,
-                        HiddenVarVal::Script(script) => handler.write_hidden_script(&config_ctx, var, &var_spec.ty, script)?,
-                    }
+            }
+
+            for (var, var_spec) in hvars {
+                match &var_spec.val {
+                    HiddenVarVal::Constant(val) => handler.write_hidden_const(&config_ctx, var, &var_spec.ty, val)?,
+                    HiddenVarVal::Script(script) => handler.write_hidden_script(&config_ctx, var, &var_spec.ty, script)?,
                 }
+            }
 
-                for (var, var_spec) in ivars {
-                    match &var_spec.ty {
-                        VarType::Path { file_type: Some(file_type), create: Some(create) } => {
-                            let owner = if create.owner == "$service" {
-                                package.service_user().expect("Attempt to use service user but the package is not a service.")
-                            } else {
-                                &create.owner
-                            };
+            for (var, var_spec) in ivars {
+                match &var_spec.ty {
+                    VarType::Path { file_type: Some(file_type), create: Some(create) } => {
+                        let owner = if create.owner == "$service" {
+                            package.service_user().expect("Attempt to use service user but the package is not a service.")
+                        } else {
+                            &create.owner
+                        };
 
-                            let group = if create.group == "$service" {
-                                package.service_user().expect("Attempt to use service group but it's missing or the package is not a service.")
-                            } else {
-                                &create.group
-                            };
+                        let group = if create.group == "$service" {
+                            package.service_user().expect("Attempt to use service group but it's missing or the package is not a service.")
+                        } else {
+                            &create.group
+                        };
 
-                            handler.create_path(&config_ctx, var, file_type, create.mode, owner, group)?;
-                        },
-                        VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
-                        _ => (),
-                    }
+                        handler.create_path(&config_ctx, var, file_type, create.mode, owner, group)?;
+                    },
+                    VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
+                    _ => (),
                 }
             }
         }
