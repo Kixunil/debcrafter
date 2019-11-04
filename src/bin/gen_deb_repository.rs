@@ -20,6 +20,8 @@ pub struct Source {
     // TODO: enum with validation instead?
     pub version: String,
     pub section: String,
+    #[serde(default, rename = "with")]
+    pub with_components: HashSet<String>,
     pub packages: HashSet<String>,
 }
 
@@ -32,15 +34,20 @@ static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::
     ("triggers", crate::generator::triggers::generate),
 ];
 
-fn gen_rules<I>(deb_dir: &Path, systemd_services: I) -> io::Result<()> where I: IntoIterator, <I as IntoIterator>::IntoIter: ExactSizeIterator, <I as IntoIterator>::Item: std::fmt::Display {
+fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Result<()> where I: IntoIterator, <I as IntoIterator>::IntoIter: ExactSizeIterator, <I as IntoIterator>::Item: std::fmt::Display {
     let systemd_services = systemd_services.into_iter();
     let mut out = fs::File::create(deb_dir.join("rules")).expect("Failed to create control file");
 
     writeln!(out, "#!/usr/bin/make -f")?;
     writeln!(out)?;
     writeln!(out, "%:")?;
+    write!(out, "\tdh $@")?;
+    for component in &source.with_components {
+        write!(out, " --with {}", component)?;
+    }
+    writeln!(out)?;
+
     if systemd_services.len() > 0 {
-        writeln!(out, "\tdh $@ --with systemd")?;
         writeln!(out)?;
         writeln!(out, "override_dh_systemd_enable:")?;
         for service in systemd_services {
@@ -90,7 +97,7 @@ fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: boo
     LazyCreateBuilder::new(file_name, append)
 }
 
-fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &Source, maintainer: &str) {
+fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str) {
     let dir = dest.join(format!("{}-{}", name, source.version));
     let deb_dir = dir.join("debian");
     fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
@@ -130,7 +137,10 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &Source, maint
         })
         .collect::<Vec<_>>();
 
-    gen_rules(&deb_dir, &services).expect("Failed to generate rules");
+    if services.len() > 0 {
+        source.with_components.insert("systemd".to_owned());
+    }
+    gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
 }
 
 fn main() {
@@ -138,7 +148,7 @@ fn main() {
 
     let repo = debcrafter::load_file::<Repository, _>(&spec_file);
     
-    for (name, source) in repo.sources {
-        gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &source, &repo.maintainer)
+    for (name, mut source) in repo.sources {
+        gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer)
     }
 }
