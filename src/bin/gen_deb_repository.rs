@@ -20,6 +20,8 @@ pub struct Source {
     // TODO: enum with validation instead?
     pub version: String,
     pub section: String,
+    #[serde(default)]
+    pub build_depends: Vec<String>,
     #[serde(default, rename = "with")]
     pub with_components: HashSet<String>,
     pub packages: HashSet<String>,
@@ -68,7 +70,10 @@ fn gen_control(deb_dir: &Path, name: &str, source: &Source, maintainer: &str, ne
     writeln!(out, "Maintainer: {}", maintainer)?;
     write!(out, "Build-Depends: debhelper (>= 9)")?;
     if needs_dh_systemd {
-        write!(out, ",\n               dh-systemd (>= 1.15.5),")?;
+        write!(out, ",\n               dh-systemd (>= 1.15.5)")?;
+    }
+    for build_dep in &source.build_depends {
+        write!(out, ",\n               {}", build_dep)?;
     }
     writeln!(out)
 }
