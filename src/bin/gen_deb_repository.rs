@@ -55,8 +55,6 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
         for service in systemd_services {
             writeln!(out, "\tdh_systemd_enable --name={}", service)?;
         }
-    } else {
-        writeln!(out, "\tdh $@")?;
     }
     Ok(())
 }
