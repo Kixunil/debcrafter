@@ -19,6 +19,7 @@ pub trait HandlePostinst: Sized {
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType) -> Result<(), Self::Error>;
     fn write_external_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, rename: &Option<String>) -> Result<(), Self::Error>;
+    fn fetch_external_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
     fn write_hidden_const(&mut self, config: &Config, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error>;
@@ -176,18 +177,22 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 let pkg = package.get_include(pkg_name).expect("Package not found");
 
                 for (var, var_spec) in vars {
-                    let ty = &pkg
-                        .config()
-                        .iter()
-                        .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                            ivars.get(var)
-                        } else {
-                            None
-                        })
-                        .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
-                        .ty;
+                    if var_spec.store {
+                        let ty = &pkg
+                            .config()
+                            .iter()
+                            .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                ivars.get(var)
+                            } else {
+                                None
+                            })
+                            .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
+                            .ty;
 
-                    handler.write_external_var(&config_ctx, pkg_name, var, ty, &var_spec.name)?;
+                        handler.write_external_var(&config_ctx, pkg_name, var, ty, &var_spec.name)?;
+                    } else {
+                        handler.fetch_external_var(&config_ctx, pkg_name, var)?;
+                    }
                 }
 
             }

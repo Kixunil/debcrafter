@@ -6,6 +6,10 @@ use std::borrow::Cow;
 
 pub mod postinst;
 
+fn create_true() -> bool {
+    true
+}
+
 pub trait PackageConfig {
     fn config(&self) -> &HashMap<String, Config>;
 }
@@ -264,6 +268,8 @@ pub enum DebconfPriority {
 pub struct ExternalVar {
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default = "create_true")]
+    pub store: bool,
 }
 
 #[derive(Deserialize)]
