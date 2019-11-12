@@ -30,6 +30,7 @@ pub struct Source {
 static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::Result<()>)] = &[
     ("config", crate::generator::config::generate),
     ("install", crate::generator::install::generate),
+    ("links", crate::generator::links::generate),
     ("postinst", crate::generator::postinst::generate),
     ("postrm", crate::generator::postrm::generate),
     ("templates", crate::generator::templates::generate),
