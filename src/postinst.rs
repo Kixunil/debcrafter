@@ -87,14 +87,18 @@ impl<'a> Package<'a> for PackageInstance<'a> {
 
     fn config_sub_dir(&self) -> Cow<'a, str> {
         if let PackageSpec::ConfExt(confext) = &self.spec {
-            self
-                .get_include(&confext.extends)
-                .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
-                .instantiate(self.variant, None)
-                .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
-                .config_sub_dir()
-                .into_owned()
-                .into()
+            if confext.external {
+                "/".into()
+            } else {
+                self
+                    .get_include(&confext.extends)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
+                    .instantiate(self.variant, None)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
+                    .config_sub_dir()
+                    .into_owned()
+                    .into()
+            }
         } else {
             self.name.clone().into_owned().into()
         }
@@ -102,14 +106,18 @@ impl<'a> Package<'a> for PackageInstance<'a> {
 
     fn internal_config_sub_dir(&self) -> Cow<'a, str> {
         if let PackageSpec::ConfExt(confext) = &self.spec {
-            self
-                .get_include(&confext.extends)
-                .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
-                .instantiate(self.variant, None)
-                .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
-                .config_sub_dir()
-                .into_owned()
-                .into()
+            if confext.external {
+                "/".into()
+            } else {
+                self
+                    .get_include(&confext.extends)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
+                    .instantiate(self.variant, None)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
+                    .config_sub_dir()
+                    .into_owned()
+                    .into()
+            }
         } else {
             self.name.clone().into_owned().into()
         }

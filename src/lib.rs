@@ -74,8 +74,8 @@ impl Package {
             }
         }
 
-        if let PackageSpec::ConfExt(confext) = &self.spec {
-            result.entry(confext.extends.clone()).or_insert_with(|| load_include(dir.as_ref(), &confext.extends));
+        if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
+            result.entry(extends.clone()).or_insert_with(|| load_include(dir.as_ref(), &extends));
         }
 
         result
@@ -169,6 +169,8 @@ pub struct ConfExtPackageSpec {
     pub extends: String,
     #[serde(default)]
     pub replaces: bool,
+    #[serde(default)]
+    pub external: bool,
     #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
