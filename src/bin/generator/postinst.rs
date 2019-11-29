@@ -68,7 +68,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out)
     }
 
-    fn fetch_external_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error> {
+    fn fetch_external_var(&mut self, _config: &Config, package: &str, name: &str) -> Result<(), Self::Error> {
         write_fetch_var(&mut self.out, package, name)?;
         writeln!(self.out)
     }

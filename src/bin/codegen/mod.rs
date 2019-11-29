@@ -194,7 +194,7 @@ pub fn generate<F: FnMut(&PackageInstance, LazyCreateBuilder) -> io::Result<()>>
     } else {
         let dest = PathBuf::from(dest);
         for variant in &pkg.variants {
-            let instance = pkg.instantiate(Some(variant), Some(&includes)).expect("Invalid variant");;
+            let instance = pkg.instantiate(Some(variant), Some(&includes)).expect("Invalid variant");
             let dest = match gen_file {
                 GenFileName::Extension(extension) => {
                     let mut dest = dest.join(&*instance.name);
