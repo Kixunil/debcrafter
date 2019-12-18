@@ -97,7 +97,6 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error> {
-        writeln!(self.out, "local create_path")?;
         match (file_type, only_parent) {
             (_, true) => {
                 writeln!(self.out, "create_path=\"`dirname \"${{CONFIG[{}/{}]}}\"`\"", config.package_name, var_name)?;
