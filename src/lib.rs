@@ -254,6 +254,8 @@ pub struct InternalVar {
     #[serde(default)]
     pub default: Option<String>,
     pub priority: DebconfPriority,
+    #[serde(default)]
+    pub ignore_empty: bool,
 }
 
 #[derive(Deserialize)]

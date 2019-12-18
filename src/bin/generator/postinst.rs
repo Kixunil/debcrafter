@@ -56,9 +56,13 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
     }
 
-    fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType) -> Result<(), Self::Error> {
+    fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType, ignore_empty: bool) -> Result<(), Self::Error> {
         write_fetch_var(&mut self.out, config.package_name, name)?;
-        write_var(&mut self.out, config, name, ty)?;
+        if ignore_empty {
+            write_nonempty_var(&mut self.out, config, name, ty)?;
+        } else {
+            write_var(&mut self.out, config, name, ty)?;
+        }
         writeln!(self.out)
     }
 
@@ -182,6 +186,26 @@ fn write_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) ->
         (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
         (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
     }
+}
+
+fn write_nonempty_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
+    writeln!(&mut out, "opts=$-")?;
+    writeln!(&mut out, "set +e")?;
+    writeln!(&mut out, "grep -q '^..*$' << EOF")?;
+    writeln!(&mut out, "$RET")?;
+    writeln!(&mut out, "EOF")?;
+    writeln!(&mut out, "if [ $? -eq 0 ]; then")?;
+    writeln!(&mut out, "if [[ $opts =~ e ]]; then set -e; fi")?;
+    match (config.format, ty) {
+        (ConfFormat::Toml, VarType::String) |
+        (ConfFormat::Toml, VarType::BindHost) |
+        (ConfFormat::Toml, VarType::Path { .. }) => write_stringly_toml(&mut out, config, name),
+        (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
+        (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
+    }?;
+    writeln!(&mut out, "else")?;
+    writeln!(&mut out, "if [[ $opts =~ e ]]; then set -e; fi")?;
+    writeln!(&mut out, "fi")
 }
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {

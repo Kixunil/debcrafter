@@ -17,7 +17,7 @@ pub trait HandlePostinst: Sized {
 
     fn prepare_user<T: fmt::Display>(&mut self, name: &str, group: bool, home: Option<T>) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
-    fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType) -> Result<(), Self::Error>;
+    fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType, ignore_empty: bool) -> Result<(), Self::Error>;
     fn write_external_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, rename: &Option<String>) -> Result<(), Self::Error>;
     fn fetch_external_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
@@ -178,7 +178,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
             }
 
             for (var, var_spec) in ivars {
-                handler.write_internal_var(&config_ctx, var, &var_spec.ty)?;
+                handler.write_internal_var(&config_ctx, var, &var_spec.ty, var_spec.ignore_empty)?;
             }
 
             for (pkg_name, vars) in evars {
