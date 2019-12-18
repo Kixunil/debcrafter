@@ -96,19 +96,26 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "cat \"{}\" >> \"{}\"", file, config.file_name)
     }
 
-    fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str) -> Result<(), Self::Error> {
-        match file_type {
-            FileType::Regular => {
-                writeln!(self.out, "mkdir -p \"`dirname \"${{CONFIG[{}/{}]}}\"`\"", config.package_name, var_name)?;
-                writeln!(self.out, "touch \"${{CONFIG[{}/{}]}}\"", config.package_name, var_name)?;
+    fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error> {
+        writeln!(self.out, "local create_path")?;
+        match (file_type, only_parent) {
+            (_, true) => {
+                writeln!(self.out, "create_path=\"`dirname \"${{CONFIG[{}/{}]}}\"`\"", config.package_name, var_name)?;
+                writeln!(self.out, "mkdir -p \"$create_path\"")?;
             },
-            FileType::Dir => {
-                writeln!(self.out, "mkdir -p \"${{CONFIG[{}/{}]}}\"", config.package_name, var_name)?;
+            (FileType::Regular, false) => {
+                writeln!(self.out, "create_path=\"${{CONFIG[{}/{}]}}\"", config.package_name, var_name)?;
+                writeln!(self.out, "mkdir -p \"`dirname \"$create_path\"`\"")?;
+                writeln!(self.out, "touch \"$create_path\"")?;
+            },
+            (FileType::Dir, false) => {
+                writeln!(self.out, "create_path=\"${{CONFIG[{}/{}]}}\"", config.package_name, var_name)?;
+                writeln!(self.out, "mkdir -p \"$create_path\"")?;
             },
         }
-        writeln!(self.out, "chown {} \"${{CONFIG[{}/{}]}}\"", owner, config.package_name, var_name)?;
-        writeln!(self.out, "chgrp {} \"${{CONFIG[{}/{}]}}\"", group, config.package_name, var_name)?;
-        writeln!(self.out, "chmod {} \"${{CONFIG[{}/{}]}}\"", mode, config.package_name, var_name)?;
+        writeln!(self.out, "chown {} \"$create_path\"", owner)?;
+        writeln!(self.out, "chgrp {} \"$create_path\"", group)?;
+        writeln!(self.out, "chmod {} \"$create_path\"", mode)?;
         writeln!(self.out)
     }
 

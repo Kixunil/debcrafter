@@ -314,6 +314,8 @@ pub struct CreateFsObj {
     pub mode: u16,
     pub owner: String,
     pub group: String,
+    #[serde(default)]
+    pub only_parent: bool,
 }
 
 pub struct PackageInstance<'a> {

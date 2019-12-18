@@ -27,7 +27,7 @@ pub trait HandlePostinst: Sized {
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
-    fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str) -> Result<(), Self::Error>;
+    fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
 }
 
@@ -227,7 +227,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             &create.group
                         };
 
-                        handler.create_path(&config_ctx, var, file_type, create.mode, owner, group)?;
+                        handler.create_path(&config_ctx, var, file_type, create.mode, owner, group, create.only_parent)?;
                     },
                     VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
                     _ => (),
