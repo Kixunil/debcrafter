@@ -16,6 +16,8 @@ pub trait HandlePostinst: Sized {
     type Error: fmt::Debug + fmt::Display;
 
     fn prepare_user<T: fmt::Display>(&mut self, name: &str, group: bool, home: Option<T>) -> Result<(), Self::Error>;
+    fn add_user_to_groups<I>(&mut self, user: &str, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
+    fn create_groups<I>(&mut self, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
     fn prepare_database(&mut self, instance: &ServiceInstance, name: &str, config: &DbConfig) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType, ignore_empty: bool) -> Result<(), Self::Error>;
@@ -248,6 +250,11 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
                 handler.prepare_user(user, service.spec.user.group, Some(format_args!("/var/lib/{}", user)))?;
             } else {
                 handler.prepare_user(user, service.spec.user.group, Option::<&str>::None)?;
+            }
+
+            if service.spec.extra_groups.len() > 0 {
+                handler.create_groups(service.spec.extra_groups.iter().filter(|(_, cfg)| cfg.create).map(|(group, _)| group))?;
+                handler.add_user_to_groups(user, service.spec.extra_groups.iter().map(|(group, _)| group))?;
             }
         }
 

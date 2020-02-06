@@ -35,6 +35,28 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
     }
 
+    fn add_user_to_groups<I>(&mut self, user: &str, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str> {
+        let mut non_empty = false;
+        write!(self.out, "usermod -a -G ")?;
+        for group in groups {
+            if non_empty {
+                write!(self.out, ",{}", group.as_ref())?;
+            } else {
+                write!(self.out, "{}", group.as_ref())?;
+                non_empty = true;
+            }
+        }
+        writeln!(self.out, " {}", user)?;
+        Ok(())
+    }
+
+    fn create_groups<I>(&mut self, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str> {
+        for group in groups {
+            writeln!(self.out, "groupadd -rf {}", group.as_ref())?;
+        }
+        Ok(())
+    }
+
     fn prepare_database(&mut self, pkg: &ServiceInstance, db_type: &str, _db_config: &DbConfig) -> Result<(), Self::Error> {
         // TODO: FS-based databases (sqlite)
         if let Some(conf_d) = &pkg.spec.conf_d {

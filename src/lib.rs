@@ -149,6 +149,11 @@ pub struct DbConfig {
 }
 
 #[derive(Deserialize)]
+pub struct ExtraGroup {
+    pub create: bool,
+}
+
+#[derive(Deserialize)]
 pub struct ServicePackageSpec {
     pub bin_package: String,
     pub binary: String,
@@ -169,6 +174,8 @@ pub struct ServicePackageSpec {
     pub long_doc: Option<String>,
     #[serde(default)]
     pub databases: HashMap<String, DbConfig>,
+    #[serde(default)]
+    pub extra_groups: HashMap<String, ExtraGroup>,
 }
 
 #[derive(Deserialize)]
