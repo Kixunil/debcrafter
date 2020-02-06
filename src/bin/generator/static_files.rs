@@ -7,14 +7,14 @@ pub fn generate(instance: &PackageInstance, source_root: &Path) -> io::Result<()
     let static_dir = source_root.join(&*instance.name);
     let mut share_dir = static_dir.join("usr/share");
     share_dir.push(&*instance.internal_config_sub_dir());
-    share_dir.push("internal_config");
+    let share_dir_internal = share_dir.join("internal_config");
     let mut config_dir = static_dir;
     config_dir.push("etc");
     config_dir.push(&*instance.config_sub_dir());
     for (file_name, conf) in instance.config() {
         if let ConfType::Static { content, internal } = &conf.conf_type {
             let file_path = if *internal {
-                share_dir.join(file_name)
+                share_dir_internal.join(file_name)
             } else {
                 config_dir.join(file_name)
             };
@@ -22,6 +22,16 @@ pub fn generate(instance: &PackageInstance, source_root: &Path) -> io::Result<()
 
             let mut file = fs::File::create(file_path)?;
             file.write_all(content.as_bytes())?;
+        }
+    }
+
+    if let Some(service) = instance.as_service() {
+        if let Some((_, db)) = service.spec.databases.iter().next() {
+            let mut output = share_dir.join("dbconfig-common");
+            fs::create_dir_all(&output)?;
+            output.push("template");
+            let mut template_file = fs::File::create(output)?;
+            template_file.write_all(db.template.as_bytes())?;
         }
     }
 

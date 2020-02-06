@@ -33,5 +33,16 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         writeln!(file, "db_go")?;
     }
 
+    if let Some(service) = instance.as_service() {
+        if let Some((db_type, _)) = service.spec.databases.iter().next() {
+            writeln!(out, "if [ -f /usr/share/dbconfig-common/dpkg/config.{} ];", db_type)?;
+            writeln!(out, "then")?;
+            writeln!(out, "\tdbc_dbtypes={}", db_type)?;
+            writeln!(out, "\t. /usr/share/dbconfig-common/dpkg/config.{}", db_type)?;
+            writeln!(out, "\tdbc_go {} \"$@\"", service.name)?;
+            writeln!(out, "fi")?;
+        }
+    }
+
     Ok(())
 }

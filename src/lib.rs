@@ -144,6 +144,11 @@ impl PackageConfig for PackageSpec {
 }
 
 #[derive(Deserialize)]
+pub struct DbConfig {
+    pub template: String,
+}
+
+#[derive(Deserialize)]
 pub struct ServicePackageSpec {
     pub bin_package: String,
     pub binary: String,
@@ -162,6 +167,8 @@ pub struct ServicePackageSpec {
     pub summary: Option<String>,
     #[serde(default)]
     pub long_doc: Option<String>,
+    #[serde(default)]
+    pub databases: HashMap<String, DbConfig>,
 }
 
 #[derive(Deserialize)]

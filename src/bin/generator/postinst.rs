@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig};
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config};
@@ -33,6 +33,30 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         } else {
             writeln!(self.out, "adduser --system --quiet{} {} \n", group_arg, name)
         }
+    }
+
+    fn prepare_database(&mut self, pkg: &ServiceInstance, db_type: &str, _db_config: &DbConfig) -> Result<(), Self::Error> {
+        // TODO: FS-based databases (sqlite)
+        if let Some(conf_d) = &pkg.spec.conf_d {
+            writeln!(self.out, "mkdir -p /etc/{}/{}", pkg.name, conf_d.name)?;
+            writeln!(self.out, "dbc_generate_include=template:/etc/{}/{}/database", pkg.name, conf_d.name)?;
+        } else {
+            writeln!(self.out, "mkdir -p /etc/{}", pkg.name)?;
+            writeln!(self.out, "dbc_generate_include=template:/etc/{}/database", pkg.name)?;
+        }
+        // There doesn't seem to be a standardized path for templates, so we made up one
+        writeln!(self.out, "dbc_generate_include_args=\"-o template_infile=/usr/share/{}/dbconfig-common/template\"", pkg.name)?;
+        // We prefer config files to be owned by root, but being readable is more important
+        if pkg.spec.user.group {
+            writeln!(self.out, "dbc_generate_include_owner=root:{}", pkg.user_name())?;
+            writeln!(self.out, "dbc_generate_include_perms=640")?;
+        } else {
+            writeln!(self.out, "dbc_generate_include_owner={}:root", pkg.user_name())?;
+            writeln!(self.out, "dbc_generate_include_perms=460")?;
+        }
+        writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", db_type)?;
+        writeln!(self.out, "dbc_go {} \"$@\"", pkg.name)?;
+        Ok(())
     }
 
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error> {

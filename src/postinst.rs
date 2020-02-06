@@ -1,4 +1,4 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig};
 use std::fmt;
 use std::borrow::Cow;
 
@@ -16,6 +16,7 @@ pub trait HandlePostinst: Sized {
     type Error: fmt::Debug + fmt::Display;
 
     fn prepare_user<T: fmt::Display>(&mut self, name: &str, group: bool, home: Option<T>) -> Result<(), Self::Error>;
+    fn prepare_database(&mut self, instance: &ServiceInstance, name: &str, config: &DbConfig) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType, ignore_empty: bool) -> Result<(), Self::Error>;
     fn write_external_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, rename: &Option<String>) -> Result<(), Self::Error>;
@@ -248,6 +249,11 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
             } else {
                 handler.prepare_user(user, service.spec.user.group, Option::<&str>::None)?;
             }
+        }
+
+        assert!(service.spec.databases.len() < 2, "More than one database not supported yet");
+        if let Some((db_type, db_config)) = service.spec.databases.iter().next() {
+            handler.prepare_database(&service, &db_type, &db_config)?;
         }
     }
 
