@@ -44,7 +44,7 @@ Generated files
 - [x] postrm
 - [x] compat
 - [x] install
-- [ ] links (currently handled by install, but it sucks)
+- [x] links
 - [ ] dirs
 - [ ] desktop
 - [ ] conffiles (not needed actually thanks to DH)
@@ -72,6 +72,7 @@ Features
 - [ ] Python
 - [ ] Debhelper integration
 - [ ] Debconf integration
+- [x] Dbconfig integrtion
 - [ ] Delegate maintainer scripts to a common specialized program for faster, more reliable and more easily auditable execution
 
 Package specification
