@@ -246,6 +246,7 @@ pub enum ConfType {
 pub enum ConfFormat {
     Plain,
     Toml,
+    Yaml,
 }
 
 impl fmt::Display for ConfFormat {
@@ -253,6 +254,7 @@ impl fmt::Display for ConfFormat {
         match self {
             ConfFormat::Plain => write!(f, "plain"),
             ConfFormat::Toml => write!(f, "toml"),
+            ConfFormat::Yaml => write!(f, "yaml"),
         }
     }
 }

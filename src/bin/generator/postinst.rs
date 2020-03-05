@@ -224,12 +224,36 @@ fn write_unquoted_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io:
     writeln!(&mut out, "EOF")
 }
 
+fn write_stringly_yaml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
+    writeln!(&mut out, "echo -n \"{}: \\\"\" >> \"{}\"", name, config.file_name)?;
+    writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
+    writeln!(&mut out, "$RET")?;
+    writeln!(&mut out, "EOF")?;
+    writeln!(&mut out, ") -gt 1 ]; then")?;
+    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "$RET")?;
+    writeln!(&mut out, "EOF")?;
+    writeln!(&mut out, "else")?;
+    writeln!(&mut out, "echo '\"' >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "fi")
+}
+
+fn write_unquoted_yaml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
+    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "{}: $RET", name)?;
+    writeln!(&mut out, "EOF")
+}
+
 fn write_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
     match (config.format, ty) {
         (ConfFormat::Toml, VarType::String) |
         (ConfFormat::Toml, VarType::BindHost) |
         (ConfFormat::Toml, VarType::Path { .. }) => write_stringly_toml(&mut out, config, name),
         (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
+        (ConfFormat::Yaml, VarType::String) |
+        (ConfFormat::Yaml, VarType::BindHost) |
+        (ConfFormat::Yaml, VarType::Path { .. }) => write_stringly_yaml(&mut out, config, name),
+        (ConfFormat::Yaml, _) => write_unquoted_yaml(&mut out, config, name),
         (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
     }
 }
@@ -247,6 +271,10 @@ fn write_nonempty_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &Va
         (ConfFormat::Toml, VarType::BindHost) |
         (ConfFormat::Toml, VarType::Path { .. }) => write_stringly_toml(&mut out, config, name),
         (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
+        (ConfFormat::Yaml, VarType::String) |
+        (ConfFormat::Yaml, VarType::BindHost) |
+        (ConfFormat::Yaml, VarType::Path { .. }) => write_stringly_yaml(&mut out, config, name),
+        (ConfFormat::Yaml, _) => write_unquoted_yaml(&mut out, config, name),
         (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
     }?;
     writeln!(&mut out, "else")?;

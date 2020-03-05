@@ -52,7 +52,11 @@ Generated files
 Features
 
 - [x] Process service packages
-- [x] Copy debconf configuration to plain `key=value` files as well as Toml.
+- [x] Copy debconf configuration to config files
+- [x] Plain `key=value` config files
+- [x] Toml config files
+- [x] Yaml config files
+- [ ] Json config files
 - [x] Set correct ownership and permission for config files and diretories configured from debconf
 - [x] Concat configuration for stuff that doesn't support conf dirs
 - [x] Configuration extension packages - packages that somehow modify configuration of another package
