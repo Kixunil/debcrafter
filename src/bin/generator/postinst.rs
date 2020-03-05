@@ -187,6 +187,22 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "dpkg-trigger {}-config-changed\n", instance.name)
     }
 
+    fn postprocess_conf_file(&mut self, _config: &Config, command: &[String]) -> Result<(), Self::Error> {
+        for arg in command {
+            write!(self.out, "'")?;
+            for ch in arg.chars() {
+                if ch == '\'' {
+                    write!(self.out, "'\\''")?;
+                } else {
+                    write!(self.out, "{}", ch)?;
+                }
+            }
+            write!(self.out, "' ")?;
+        }
+        writeln!(self.out)?;
+        Ok(())
+    }
+
     fn finish(mut self) -> Result<(), Self::Error> {
         writeln!(self.out, "#DEBHELPER#\n")?;
         writeln!(self.out, "exit 0")

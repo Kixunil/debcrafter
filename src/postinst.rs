@@ -29,6 +29,7 @@ pub trait HandlePostinst: Sized {
     fn write_hidden_script(&mut self, config: &Config, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
+    fn postprocess_conf_file(&mut self, config: &Config, command: &[String]) -> Result<(), Self::Error>;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
@@ -157,7 +158,7 @@ impl<'a> Package<'a> for PackageInstance<'a> {
 
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, .. } = &config.conf_type {
+        if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, postprocess, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
             let config_ctx = Config {
                 package_name: package.config_pkg_name(),
@@ -235,6 +236,10 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
                     _ => (),
                 }
+            }
+
+            if let Some(postprocess) = postprocess {
+                handler.postprocess_conf_file(&config_ctx, postprocess)?;
             }
         }
     }

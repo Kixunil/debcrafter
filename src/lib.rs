@@ -238,6 +238,8 @@ pub enum ConfType {
         #[serde(default)]
         cat_files: HashSet<String>,
         comment: Option<String>,
+        // Command to run after creating whole config file
+        postprocess: Option<Vec<String>>,
     },
 }
 
