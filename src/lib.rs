@@ -45,6 +45,8 @@ pub struct Package {
     pub variants: HashSet<String>,
     #[serde(flatten)]
     pub spec: PackageSpec,
+    #[serde(default)]
+    pub depends: HashSet<String>,
 }
 
 fn load_include(dir: &Path, name: &str) -> Package {
@@ -101,6 +103,7 @@ impl Package {
             variant,
             spec: &self.spec,
             includes,
+            depends: &self.depends,
         })
     }
 }
@@ -343,6 +346,7 @@ pub struct PackageInstance<'a> {
     pub variant: Option<&'a str>,
     pub spec: &'a PackageSpec,
     pub includes: Option<&'a HashMap<String, Package>>,
+    pub depends: &'a HashSet<String>,
 }
 
 impl<'a> PackageInstance<'a> {

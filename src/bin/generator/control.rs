@@ -47,6 +47,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .flatten()
         .map(|(pkg, _)| pkg.as_str())
         .chain(Some(main_dep.as_str()))
+        .chain(instance.depends.iter().map(AsRef::as_ref))
         .map(Into::into)
         .chain(extra.into_iter().flatten())
         // This avoids duplicates
