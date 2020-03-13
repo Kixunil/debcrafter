@@ -13,7 +13,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 writeln!(out, "Template: {}/{}", instance.name, var)?;
 
                 let template_type = if let VarType::Bool = var_spec.ty {
-                    "bool"
+                    "boolean"
                 } else {
                     "string"
                 };
