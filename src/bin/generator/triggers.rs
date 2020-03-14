@@ -4,31 +4,49 @@ use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     use std::collections::HashSet;
+    use debcrafter::PackageConfig;
+    use debcrafter::postinst::Package;
 
-    if let Some(instance) = instance.as_service() {
-        let mut out = out.finalize();
-        let mut dirs = HashSet::new();
-        let mut files_no_await = HashSet::new();
-        let mut files_await = HashSet::new();
+    let mut dirs = HashSet::new();
+    let mut files_no_await = HashSet::new();
+    let mut files_await = HashSet::new();
 
+    // A package needs triggers only if it's doing something "interesting".
+    // Currently it's either being a service or having postprocess script.
+    let needs_triggers = if let Some(instance) = instance.as_service() {
         files_no_await.insert(instance.spec.binary.clone());
         if let Some(conf_dir) = &instance.spec.conf_d {
             dirs.insert(format!("/etc/{}/{}", instance.name, conf_dir.name.trim_end_matches('/')));
         }
-        for (file, config) in &instance.spec.config {
+        true
+    } else {
+        instance
+            .config()
+            .values()
+            .find(|config| match &config.conf_type {
+                ConfType::Dynamic { postprocess: Some(_), .. } => true,
+                _ => false,
+            })
+            .is_some()
+    };
+
+    if needs_triggers {
+        let mut out = out.finalize();
+
+        for (file, config) in instance.config() {
             match &config.conf_type {
                 ConfType::Static { .. } =>  {
-                    files_await.insert(format!("/etc/{}/{}", instance.name, file));
+                    files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
                 },
                 ConfType::Dynamic { evars, cat_dir, cat_files, .. } =>  {
                     for (package, _) in evars {
                         writeln!(out, "interest-noawait {}-config-changed", package)?;
                     }
                     if let Some(cat_dir) = cat_dir {
-                        dirs.insert(format!("/etc/{}/{}", instance.name, cat_dir.trim_end_matches('/')));
+                        dirs.insert(format!("/etc/{}/{}", instance.config_sub_dir(), cat_dir.trim_end_matches('/')));
                     }
                     for file in cat_files {
-                        files_await.insert(format!("/etc/{}/{}", instance.name, file));
+                        files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
                     }
                 },
             }
