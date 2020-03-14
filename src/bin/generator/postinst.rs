@@ -184,7 +184,10 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error> {
-        writeln!(self.out, "dpkg-trigger {}-config-changed\n", instance.name)
+        writeln!(self.out, "if [ \"$1\" '!=' triggered ];")?;
+        writeln!(self.out, "then")?;
+        writeln!(self.out, "\tdpkg-trigger {}-config-changed\n", instance.name)?;
+        writeln!(self.out, "fi")
     }
 
     fn postprocess_conf_file(&mut self, _config: &Config, command: &[String]) -> Result<(), Self::Error> {
