@@ -1,6 +1,8 @@
 use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig};
 use std::fmt;
 use std::borrow::Cow;
+use itertools::Either;
+use std::cmp::Ordering;
 
 #[derive(Copy, Clone)]
 pub struct Config<'a> {
@@ -21,13 +23,15 @@ pub trait HandlePostinst: Sized {
     fn create_groups<I>(&mut self, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
     fn prepare_database(&mut self, instance: &ServiceInstance, name: &str, config: &DbConfig) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
-    fn write_internal_var(&mut self, config: &Config, name: &str, ty: &VarType, ignore_empty: bool) -> Result<(), Self::Error>;
-    fn write_external_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, rename: &Option<String>) -> Result<(), Self::Error>;
-    fn fetch_external_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
+    fn finish_config(&mut self, config: &Config) -> Result<(), Self::Error>;
+    fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
+    fn generate_const_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error>;
+    fn generate_var_using_script(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error>;
+    fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
+    fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
+    fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
-    fn write_hidden_const(&mut self, config: &Config, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error>;
-    fn write_hidden_script(&mut self, config: &Config, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
     fn postprocess_conf_file(&mut self, config: &Config, command: &[String]) -> Result<(), Self::Error>;
@@ -157,6 +161,51 @@ impl<'a> Package<'a> for PackageInstance<'a> {
     }
 }
 
+fn compute_structure<'a>(name: &'a str, structure: &'a Option<Vec<String>>) -> impl Iterator<Item=&'a str> + DoubleEndedIterator + Clone + std::fmt::Debug {
+    structure
+        .as_ref()
+        .map(|structure| Either::Left(structure.iter().map(AsRef::as_ref)))
+        .unwrap_or(Either::Right(std::iter::once(name)))
+}
+
+#[derive(Debug)]
+struct WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
+    structure: I,
+    ty: &'a VarType,
+    package: &'a str,
+    name: &'a str,
+    ignore_empty: bool,
+}
+
+impl<'a, I> PartialOrd for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
+    fn partial_cmp(&self, other: &WriteVar<'a, I>) -> Option<Ordering> {
+        let i0 = self.structure.clone();
+        let i1 = other.structure.clone();
+
+        Some(i0.cmp(i1))
+    }
+}
+
+impl<'a, I> Ord for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
+    fn cmp(&self, other: &WriteVar<'a, I>) -> Ordering {
+        let i0 = self.structure.clone();
+        let i1 = other.structure.clone();
+
+        i0.cmp(i1)
+    }
+}
+
+impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
+    fn eq(&self, other: &WriteVar<'a, I>) -> bool {
+        let i0 = self.structure.clone();
+        let i1 = self.structure.clone();
+
+        i0.cmp(i1) == Ordering::Equal
+    }
+}
+
+impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
+
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
@@ -184,7 +233,33 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
             }
 
             for (var, var_spec) in ivars {
-                handler.write_internal_var(&config_ctx, var, &var_spec.ty, var_spec.ignore_empty)?;
+                handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
+            }
+
+            for (pkg_name, vars) in evars {
+                for (var, _var_spec) in vars {
+                    handler.fetch_var(&config_ctx, pkg_name, var)?;
+                }
+
+            }
+
+            for (var, var_spec) in hvars {
+                match &var_spec.val {
+                    HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
+                    HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
+                }
+            }
+
+            let mut write_vars = Vec::new();
+
+            for (var, var_spec) in ivars {
+                write_vars.push(WriteVar {
+                    structure: compute_structure(&var, &var_spec.structure),
+                    ty: &var_spec.ty,
+                    package: &config_ctx.package_name,
+                    name: var,
+                    ignore_empty: var_spec.ignore_empty,
+                });
             }
 
             for (pkg_name, vars) in evars {
@@ -203,18 +278,81 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
                             .ty;
 
-                        handler.write_external_var(&config_ctx, pkg_name, var, ty, &var_spec.name)?;
-                    } else {
-                        handler.fetch_external_var(&config_ctx, pkg_name, var)?;
+                        let out_var = var_spec.name.as_ref().unwrap_or(var);
+                        write_vars.push(WriteVar {
+                            structure: compute_structure(&out_var, &var_spec.structure),
+                            ty,
+                            package: pkg_name,
+                            name: var,
+                            ignore_empty: var_spec.ignore_empty,
+                        });
                     }
                 }
-
             }
 
             for (var, var_spec) in hvars {
-                match &var_spec.val {
-                    HiddenVarVal::Constant(val) => handler.write_hidden_const(&config_ctx, var, &var_spec.ty, val)?,
-                    HiddenVarVal::Script(script) => handler.write_hidden_script(&config_ctx, var, &var_spec.ty, script)?,
+                write_vars.push(WriteVar {
+                    structure: compute_structure(&var, &var_spec.structure),
+                    ty: &var_spec.ty,
+                    package: &config_ctx.package_name,
+                    name: var,
+                    ignore_empty: var_spec.ignore_empty,
+                });
+            }
+
+            write_vars.sort_unstable();
+
+            static STUPID_HACK: Option<Vec<String>> = None;
+            let mut previous = Some(compute_structure("", &STUPID_HACK));
+            previous = None;
+            for var in write_vars {
+                if let Some(previous) = previous {
+                    let mut cur = var.structure.clone().peekable();
+                    // manual impl of peekable for prev because peekable impls
+                    // DoubleEndedIterator since 1.38 and Debian has only 1.34.
+                    let mut prev = previous;
+                    let mut prev_peeked = prev.next();
+
+                    while let (Some(a), Some(b)) = (prev_peeked, cur.peek()) {
+                        if a != *b {
+                            break;
+                        }
+
+                        prev_peeked = prev.next();
+                        cur.next();
+                    }
+
+                    // We iterate previous in reverse in case we implement XML in the future
+                    let mut prev = prev.rev().chain(prev_peeked);
+                    prev.next();
+
+                    for item in prev {
+                        handler.sub_object_end(&config_ctx, item)?;
+                    }
+
+                    while let Some(item) = cur.next() {
+                        if cur.peek().is_some() {
+                            handler.sub_object_begin(&config_ctx, item)?;
+                        }
+                    }
+                } else {
+                    let mut structure = var.structure.clone().peekable();
+                    while let Some(item) = structure.next() {
+                        if structure.peek().is_some() {
+                            handler.sub_object_begin(&config_ctx, item)?;
+                        }
+                    }
+                }
+                handler.write_var(&config_ctx, var.package, var.name, var.ty, var.structure.clone(), var.ignore_empty)?;
+                previous = Some(var.structure);
+            }
+
+            if let Some(previous) = previous {
+                let mut prev = previous.rev();
+                prev.next();
+
+                for item in prev {
+                    handler.sub_object_end(&config_ctx, item)?;
                 }
             }
 
@@ -239,6 +377,8 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     _ => (),
                 }
             }
+
+            handler.finish_config(&config_ctx)?;
 
             if let Some(postprocess) = postprocess {
                 handler.postprocess_conf_file(&config_ctx, postprocess)?;

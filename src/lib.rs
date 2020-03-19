@@ -264,12 +264,13 @@ pub enum ConfType {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfFormat {
     Plain,
     Toml,
     Yaml,
+    Json,
 }
 
 impl fmt::Display for ConfFormat {
@@ -278,10 +279,10 @@ impl fmt::Display for ConfFormat {
             ConfFormat::Plain => write!(f, "plain"),
             ConfFormat::Toml => write!(f, "toml"),
             ConfFormat::Yaml => write!(f, "yaml"),
+            ConfFormat::Json => write!(f, "json"),
         }
     }
 }
-
 
 #[derive(Deserialize)]
 pub struct InternalVar {
@@ -295,6 +296,7 @@ pub struct InternalVar {
     pub priority: DebconfPriority,
     #[serde(default)]
     pub ignore_empty: bool,
+    pub structure: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -313,14 +315,20 @@ pub struct ExternalVar {
     pub name: Option<String>,
     #[serde(default = "create_true")]
     pub store: bool,
+    #[serde(default)]
+    pub ignore_empty: bool,
+    pub structure: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
 pub struct HiddenVar {
     #[serde(flatten)]
     pub ty: VarType,
+    #[serde(default)]
+    pub ignore_empty: bool,
     #[serde(flatten)]
     pub val: HiddenVarVal,
+    pub structure: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -330,7 +338,7 @@ pub enum HiddenVarVal {
     Script(String),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum VarType {
@@ -342,14 +350,14 @@ pub enum VarType {
     Path { file_type: Option<FileType>, create: Option<CreateFsObj>, },
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum FileType {
     Regular,
     Dir,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct CreateFsObj {
     // TODO: use better type
     pub mode: u16,
