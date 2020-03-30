@@ -11,6 +11,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
     let (main_dep, config, extra) = match &instance.spec {
+        PackageSpec::Base(base) => (None, &base.config, None),
         PackageSpec::Service(service) => {
             let extra = if service.databases.len() > 0 {
                 let mut databases = String::new();
@@ -37,16 +38,16 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
             } else {
                 None
             };
-            (&service.bin_package, &service.config, extra)
+            (Some(&service.bin_package), &service.config, extra)
         },
-        PackageSpec::ConfExt(confext) => (&confext.extends, &confext.config, None),
+        PackageSpec::ConfExt(confext) => (Some(&confext.extends), &confext.config, None),
     };
     config
         .iter()
         .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type { Some(evars) } else { None })
         .flatten()
         .map(|(pkg, _)| pkg.as_str())
-        .chain(Some(main_dep.as_str()))
+        .chain(main_dep.map(String::as_str))
         .chain(instance.depends.iter().map(AsRef::as_ref))
         .map(Into::into)
         .chain(extra.into_iter().flatten())

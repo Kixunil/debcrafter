@@ -119,11 +119,13 @@ impl PackageConfig for Package {
 pub enum PackageSpec {
     Service(ServicePackageSpec),
     ConfExt(ConfExtPackageSpec),
+    Base(BasePackageSpec),
 }
 
 impl PackageSpec {
     pub fn summary(&self) -> &Option<String> {
         match self {
+            PackageSpec::Base(base) => &base.summary,
             PackageSpec::Service(service) => &service.summary,
             PackageSpec::ConfExt(confext) => &confext.summary,
         }
@@ -131,6 +133,7 @@ impl PackageSpec {
 
     pub fn long_doc(&self) -> &Option<String> {
         match self {
+            PackageSpec::Base(base) => &base.long_doc,
             PackageSpec::Service(service) => &service.long_doc,
             PackageSpec::ConfExt(confext) => &confext.long_doc,
         }
@@ -140,6 +143,7 @@ impl PackageSpec {
 impl PackageConfig for PackageSpec {
     fn config(&self) -> &HashMap<String, Config> {
         match self {
+            PackageSpec::Base(base) => &base.config,
             PackageSpec::Service(service) => &service.config,
             PackageSpec::ConfExt(confext) => &confext.config,
         }
@@ -154,6 +158,18 @@ pub struct DbConfig {
 #[derive(Deserialize)]
 pub struct ExtraGroup {
     pub create: bool,
+}
+
+#[derive(Deserialize)]
+pub struct BasePackageSpec {
+    #[serde(default)]
+    pub config: HashMap<String, Config>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub long_doc: Option<String>,
+    #[serde(default)]
+    pub databases: HashMap<String, DbConfig>,
 }
 
 #[derive(Deserialize)]
