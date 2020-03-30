@@ -255,6 +255,8 @@ pub enum ConfType {
         evars: HashMap<String, HashMap<String, ExternalVar>>,
         #[serde(default)]
         hvars: HashMap<String, HiddenVar>,
+        #[serde(default)]
+        fvars: HashMap<String, FileVar>,
         cat_dir: Option<String>,
         #[serde(default)]
         cat_files: HashSet<String>,
@@ -336,6 +338,19 @@ pub struct HiddenVar {
 pub enum HiddenVarVal {
     Constant(String),
     Script(String),
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum FileVar {
+    Dir { repr: DirRepr, path: String, structure: Option<Vec<String>>, }
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum DirRepr {
+    Array,
 }
 
 #[derive(Deserialize, Clone, Debug)]

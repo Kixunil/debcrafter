@@ -1,4 +1,4 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
@@ -30,6 +30,7 @@ pub trait HandlePostinst: Sized {
     fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
+    fn include_fvar<'a, I>(&mut self, config: &Config, var: &FileVar, structure: I, subdir: &str) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
@@ -171,10 +172,20 @@ fn compute_structure<'a>(name: &'a str, structure: &'a Option<Vec<String>>) -> i
 #[derive(Debug)]
 struct WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
     structure: I,
-    ty: &'a VarType,
-    package: &'a str,
-    name: &'a str,
-    ignore_empty: bool,
+    ty: WriteVarType<'a>,
+}
+
+#[derive(Debug)]
+enum WriteVarType<'a> {
+    Simple {
+        ty: &'a VarType,
+        package: &'a str,
+        name: &'a str,
+        ignore_empty: bool,
+    },
+    File {
+        data: &'a FileVar,
+    }
 }
 
 impl<'a, I> PartialOrd for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
@@ -208,7 +219,7 @@ impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
 
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
+        if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
             let config_ctx = Config {
                 package_name: package.config_pkg_name(),
@@ -255,10 +266,12 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
             for (var, var_spec) in ivars {
                 write_vars.push(WriteVar {
                     structure: compute_structure(&var, &var_spec.structure),
-                    ty: &var_spec.ty,
-                    package: &config_ctx.package_name,
-                    name: var,
-                    ignore_empty: var_spec.ignore_empty,
+                    ty: WriteVarType::Simple {
+                        ty: &var_spec.ty,
+                        package: &config_ctx.package_name,
+                        name: var,
+                        ignore_empty: var_spec.ignore_empty,
+                    },
                 });
             }
 
@@ -281,10 +294,12 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                         let out_var = var_spec.name.as_ref().unwrap_or(var);
                         write_vars.push(WriteVar {
                             structure: compute_structure(&out_var, &var_spec.structure),
-                            ty,
-                            package: pkg_name,
-                            name: var,
-                            ignore_empty: var_spec.ignore_empty,
+                            ty: WriteVarType::Simple {
+                                ty,
+                                package: pkg_name,
+                                name: var,
+                                ignore_empty: var_spec.ignore_empty,
+                            },
                         });
                     }
                 }
@@ -293,11 +308,26 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
             for (var, var_spec) in hvars {
                 write_vars.push(WriteVar {
                     structure: compute_structure(&var, &var_spec.structure),
-                    ty: &var_spec.ty,
-                    package: &config_ctx.package_name,
-                    name: var,
-                    ignore_empty: var_spec.ignore_empty,
+                    ty: WriteVarType::Simple {
+                        ty: &var_spec.ty,
+                        package: &config_ctx.package_name,
+                        name: var,
+                        ignore_empty: var_spec.ignore_empty,
+                    },
                 });
+            }
+
+            for (var, var_spec) in fvars {
+                match var_spec {
+                    FileVar::Dir { structure, .. } => {
+                        write_vars.push(WriteVar {
+                            structure: compute_structure(&var, structure),
+                            ty: WriteVarType::File {
+                                data: var_spec,
+                            },
+                        });
+                    }
+                }
             }
 
             write_vars.sort_unstable();
@@ -343,7 +373,16 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                         }
                     }
                 }
-                handler.write_var(&config_ctx, var.package, var.name, var.ty, var.structure.clone(), var.ignore_empty)?;
+                match var.ty {
+                    WriteVarType::Simple {
+                        package,
+                        name,
+                        ty,
+                        ignore_empty,
+                    } => handler.write_var(&config_ctx, package, name, ty, var.structure.clone(), ignore_empty)?,
+                    WriteVarType::File { data, } => handler.include_fvar(&config_ctx, data, var.structure.clone(), &package.config_sub_dir())?,
+                }
+                
                 previous = Some(var.structure);
             }
 

@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ConfType};
+use debcrafter::{PackageInstance, ConfType, FileVar};
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
@@ -38,7 +38,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 ConfType::Static { .. } =>  {
                     files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
                 },
-                ConfType::Dynamic { evars, cat_dir, cat_files, .. } =>  {
+                ConfType::Dynamic { evars, cat_dir, cat_files, fvars, .. } =>  {
                     for (package, _) in evars {
                         writeln!(out, "interest-noawait {}-config-changed", package)?;
                     }
@@ -47,6 +47,13 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                     }
                     for file in cat_files {
                         files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
+                    }
+                    for (_, var) in fvars {
+                        match var {
+                            FileVar::Dir { path, .. } => {
+                                dirs.insert(format!("/etc/{}/{}", instance.config_sub_dir(), path.trim_end_matches('/')));
+                            },
+                        }
                     }
                 },
             }

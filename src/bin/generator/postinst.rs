@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr};
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config};
@@ -195,6 +195,40 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
         self.var_written = true;
         writeln!(self.out)
+    }
+
+    fn include_fvar<'a, I>(&mut self, config: &Config, var: &FileVar, mut structure: I, subdir: &str) -> Result<(), Self::Error> where I: Iterator<Item=&'a str> {
+        match (config.format, var) {
+            (ConfFormat::Json, FileVar::Dir {repr: DirRepr::Array, path, .. }) => {
+                let mut out_var = structure.next().expect("Empty structure");
+                for var in structure {
+                    out_var = var;
+                }
+                let out_file = config.file_name;
+                let in_dir = format!("/etc/{}/{}/", subdir, path);
+
+                if self.var_written && *config.format == ConfFormat::Json {
+                    writeln!(self.out, "echo ',' >> \"{}\"", config.file_name)?;
+                } else {
+                    writeln!(self.out, "echo >> \"{}\"", config.file_name)?;
+                }
+                writeln!(self.out, "echo \"\\\"{}\\\": [\" >> \"{}\"", out_var, out_file)?;
+                writeln!(self.out, "if [ -d \"{}\" ] && [ `ls \"{}\" | wc -l` -gt 0 ];", in_dir, in_dir)?;
+                writeln!(self.out, "then")?;
+                writeln!(self.out, "\twritten=0")?;
+                writeln!(self.out, "\tfor file in \"{}\"/*", in_dir)?;
+                writeln!(self.out, "\tdo")?;
+                writeln!(self.out, "\t\ttest $written -eq 1 && echo ',' >> \"{}\"", out_file)?;
+                writeln!(self.out, "\t\tcat \"$file\" >> \"{}\"", out_file)?;
+                writeln!(self.out, "\twritten=1")?;
+                writeln!(self.out, "\tdone")?;
+                writeln!(self.out, "fi")?;
+                writeln!(self.out, "echo \"]\" >> \"{}\"", out_file)?;
+            },
+            (ConfFormat::Plain, _) => panic!("Plain config format doesn't support file variables"),
+            (x, FileVar::Dir {repr: DirRepr::Array, .. }) => unimplemented!("File variables not implemented for {}", x),
+        }
+        Ok(())
     }
 
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error> {
