@@ -7,6 +7,7 @@ pub struct Config<'a> {
     pub package_name: &'a str,
     pub file_name: &'a str,
     pub format: &'a ConfFormat,
+    pub with_header: bool,
     pub public: bool,
     pub change_group: Option<&'a str>,
     pub extension: bool,
@@ -158,11 +159,12 @@ impl<'a> Package<'a> for PackageInstance<'a> {
 
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, postprocess, .. } = &config.conf_type {
+        if let ConfType::Dynamic { ivars, evars, hvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
             let config_ctx = Config {
                 package_name: package.config_pkg_name(),
                 file_name: &file_name,
+                with_header: *with_header,
                 format,
                 public: config.public,
                 extension: package.is_conf_ext(),

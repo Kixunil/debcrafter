@@ -90,7 +90,16 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
 
         writeln!(self.out, "mkdir -p \"`dirname \"{}\"`\"", config.file_name)?;
-        writeln!(self.out, "echo '# Automtically generated - DO NOT MODIFY!' > \"{}\"", config.file_name)?;
+
+        match (config.format, config.with_header) {
+            (ConfFormat::Yaml, true) => {
+                writeln!(self.out, "echo '---' > \"{}\"", config.file_name)?;
+                writeln!(self.out, "echo '# Automtically generated - DO NOT MODIFY!' >> \"{}\"", config.file_name)?;
+            },
+            (_, true) => panic!("Header supported for Yaml only"),
+            _ => writeln!(self.out, "echo '# Automtically generated - DO NOT MODIFY!' > \"{}\"", config.file_name)?,
+        }
+
         if let Some(group) = config.change_group {
             writeln!(self.out, "chgrp \"{}\" \"{}\"", group, config.file_name)?;
         }

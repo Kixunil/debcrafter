@@ -248,6 +248,8 @@ pub enum ConfType {
     Dynamic {
         format: ConfFormat,
         #[serde(default)]
+        with_header: bool,
+        #[serde(default)]
         ivars: HashMap<String, InternalVar>,
         #[serde(default)]
         evars: HashMap<String, HashMap<String, ExternalVar>>,
