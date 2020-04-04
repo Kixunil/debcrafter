@@ -28,9 +28,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                         Cow::<str>::Owned(format!("/etc/{}/{}", instance.config_sub_dir(), path))
                     };
                     if is_dir {
-                        writeln!(out, "\trm -f {}", path)?;
-                    } else {
                         writeln!(out, "\trm -rf {}", path)?;
+                    } else {
+                        writeln!(out, "\trm -f {}", path)?;
                     }
                     triggers.insert(path);
                 }
