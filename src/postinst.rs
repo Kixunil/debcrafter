@@ -1,8 +1,9 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 #[derive(Copy, Clone)]
 pub struct Config<'a> {
@@ -37,6 +38,8 @@ pub trait HandlePostinst: Sized {
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
     fn postprocess_conf_file(&mut self, config: &Config, command: &[String]) -> Result<(), Self::Error>;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
+    fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error>;
+    fn create_tree(&mut self, config: &Config, path: &str) -> Result<(), Self::Error>;
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
 }
@@ -50,6 +53,7 @@ pub trait Package<'a>: PackageConfig {
     fn service_group(&self) -> Option<&str>;
     fn get_include(&self, name: &str) -> Option<&super::Package>;
     fn is_conf_ext(&self) -> bool;
+    fn conf_dir(&self) -> Option<&str>;
 }
 
 impl<'a> Package<'a> for ServiceInstance<'a> {
@@ -87,6 +91,10 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
 
     fn is_conf_ext(&self) -> bool {
         false
+    }
+
+    fn conf_dir(&self) -> Option<&str> {
+        self.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref())
     }
 }
 
@@ -160,6 +168,10 @@ impl<'a> Package<'a> for PackageInstance<'a> {
             false
         }
     }
+
+    fn conf_dir(&self) -> Option<&str> {
+        self.as_service().and_then(|service| service.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref()))
+    }
 }
 
 fn compute_structure<'a>(name: &'a str, structure: &'a Option<Vec<String>>) -> impl Iterator<Item=&'a str> + DoubleEndedIterator + Clone + std::fmt::Debug {
@@ -218,209 +230,258 @@ impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clon
 impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
 
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
+    let mut triggers = HashSet::<Cow<str>>::new();
+    let mut interested = HashSet::<String>::new();
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
-            let config_ctx = Config {
-                package_name: package.config_pkg_name(),
-                file_name: &file_name,
-                with_header: *with_header,
-                format,
-                public: config.public,
-                extension: package.is_conf_ext(),
-                change_group: package.service_group(),
-            };
-            handler.prepare_config(&config_ctx)?;
-            if let Some(comment) = comment {
-                handler.write_comment(&config_ctx, comment)?;
-            }
-
-            if let Some(cat_dir) = cat_dir {
-                handler.include_conf_dir(&config_ctx, format_args!("/etc/{}/{}", package.config_sub_dir(), cat_dir))?;
-            }
-
-            for file in cat_files {
-                handler.include_conf_file(&config_ctx, format_args!("/etc/{}/{}", package.config_sub_dir(), file))?;
-            }
-
-            for (var, var_spec) in ivars {
-                handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
-            }
-
-            for (pkg_name, vars) in evars {
-                for (var, _var_spec) in vars {
-                    handler.fetch_var(&config_ctx, pkg_name, var)?;
+            // Manual scope due to borrowing issues.
+            {
+                let config_ctx = Config {
+                    package_name: package.config_pkg_name(),
+                    file_name: &file_name,
+                    with_header: *with_header,
+                    format,
+                    public: config.public,
+                    extension: package.is_conf_ext(),
+                    change_group: package.service_group(),
+                };
+                handler.prepare_config(&config_ctx)?;
+                if let Some(comment) = comment {
+                    handler.write_comment(&config_ctx, comment)?;
                 }
 
-            }
-
-            for (var, var_spec) in hvars {
-                match &var_spec.val {
-                    HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
-                    HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
+                if let Some(cat_dir) = cat_dir {
+                    let conf_dir = format!("/etc/{}/{}", package.config_sub_dir(), cat_dir);
+                    handler.include_conf_dir(&config_ctx, &conf_dir)?;
+                    interested.insert(conf_dir);
                 }
-            }
 
-            let mut write_vars = Vec::new();
+                for file in cat_files {
+                    let conf_file = format!("/etc/{}/{}", package.config_sub_dir(), file);
+                    handler.include_conf_file(&config_ctx, &conf_file)?;
+                    interested.insert(conf_file);
+                }
 
-            for (var, var_spec) in ivars {
-                write_vars.push(WriteVar {
-                    structure: compute_structure(&var, &var_spec.structure),
-                    ty: WriteVarType::Simple {
-                        ty: &var_spec.ty,
-                        package: &config_ctx.package_name,
-                        name: var,
-                        ignore_empty: var_spec.ignore_empty,
-                    },
-                });
-            }
+                for (var, var_spec) in ivars {
+                    handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
+                }
 
-            for (pkg_name, vars) in evars {
-                let pkg = package.get_include(pkg_name).expect("Package not found");
+                for (pkg_name, vars) in evars {
+                    for (var, _var_spec) in vars {
+                        handler.fetch_var(&config_ctx, pkg_name, var)?;
+                    }
 
-                for (var, var_spec) in vars {
-                    if var_spec.store {
-                        let ty = &pkg
-                            .config()
-                            .iter()
-                            .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                                ivars.get(var)
-                            } else {
-                                None
-                            })
-                            .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
-                            .ty;
+                }
 
-                        let out_var = var_spec.name.as_ref().unwrap_or(var);
-                        write_vars.push(WriteVar {
-                            structure: compute_structure(&out_var, &var_spec.structure),
-                            ty: WriteVarType::Simple {
-                                ty,
-                                package: pkg_name,
-                                name: var,
-                                ignore_empty: var_spec.ignore_empty,
-                            },
-                        });
+                for (var, var_spec) in hvars {
+                    match &var_spec.val {
+                        HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
+                        HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
                     }
                 }
-            }
 
-            for (var, var_spec) in hvars {
-                write_vars.push(WriteVar {
-                    structure: compute_structure(&var, &var_spec.structure),
-                    ty: WriteVarType::Simple {
-                        ty: &var_spec.ty,
-                        package: &config_ctx.package_name,
-                        name: var,
-                        ignore_empty: var_spec.ignore_empty,
-                    },
-                });
-            }
+                let mut write_vars = Vec::new();
 
-            for (var, var_spec) in fvars {
-                match var_spec {
-                    FileVar::Dir { structure, .. } => {
-                        write_vars.push(WriteVar {
-                            structure: compute_structure(&var, structure),
-                            ty: WriteVarType::File {
-                                data: var_spec,
-                            },
-                        });
+                for (var, var_spec) in ivars {
+                    write_vars.push(WriteVar {
+                        structure: compute_structure(&var, &var_spec.structure),
+                        ty: WriteVarType::Simple {
+                            ty: &var_spec.ty,
+                            package: &config_ctx.package_name,
+                            name: var,
+                            ignore_empty: var_spec.ignore_empty,
+                        },
+                    });
+                }
+
+                for (pkg_name, vars) in evars {
+                    let pkg = package.get_include(pkg_name).expect("Package not found");
+
+                    for (var, var_spec) in vars {
+                        if var_spec.store {
+                            let ty = &pkg
+                                .config()
+                                .iter()
+                                .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                    ivars.get(var)
+                                } else {
+                                    None
+                                })
+                                .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
+                                .ty;
+
+                            let out_var = var_spec.name.as_ref().unwrap_or(var);
+                            write_vars.push(WriteVar {
+                                structure: compute_structure(&out_var, &var_spec.structure),
+                                ty: WriteVarType::Simple {
+                                    ty,
+                                    package: pkg_name,
+                                    name: var,
+                                    ignore_empty: var_spec.ignore_empty,
+                                },
+                            });
+                        }
                     }
                 }
-            }
 
-            write_vars.sort_unstable();
+                for (var, var_spec) in hvars {
+                    write_vars.push(WriteVar {
+                        structure: compute_structure(&var, &var_spec.structure),
+                        ty: WriteVarType::Simple {
+                            ty: &var_spec.ty,
+                            package: &config_ctx.package_name,
+                            name: var,
+                            ignore_empty: var_spec.ignore_empty,
+                        },
+                    });
+                }
 
-            static STUPID_HACK: Option<Vec<String>> = None;
-            let mut previous = Some(compute_structure("", &STUPID_HACK));
-            previous = None;
-            for var in write_vars {
-                if let Some(previous) = previous {
-                    let mut cur = var.structure.clone().peekable();
-                    // manual impl of peekable for prev because peekable impls
-                    // DoubleEndedIterator since 1.38 and Debian has only 1.34.
-                    let mut prev = previous;
-                    let mut prev_peeked = prev.next();
+                for (var, var_spec) in fvars {
+                    match var_spec {
+                        FileVar::Dir { structure, .. } => {
+                            write_vars.push(WriteVar {
+                                structure: compute_structure(&var, structure),
+                                ty: WriteVarType::File {
+                                    data: var_spec,
+                                },
+                            });
+                        }
+                    }
+                }
 
-                    while let (Some(a), Some(b)) = (prev_peeked, cur.peek()) {
-                        if a != *b {
-                            break;
+                write_vars.sort_unstable();
+
+                static STUPID_HACK: Option<Vec<String>> = None;
+                let mut previous = Some(compute_structure("", &STUPID_HACK));
+                previous = None;
+                for var in write_vars {
+                    if let Some(previous) = previous {
+                        let mut cur = var.structure.clone().peekable();
+                        // manual impl of peekable for prev because peekable impls
+                        // DoubleEndedIterator since 1.38 and Debian has only 1.34.
+                        let mut prev = previous;
+                        let mut prev_peeked = prev.next();
+
+                        while let (Some(a), Some(b)) = (prev_peeked, cur.peek()) {
+                            if a != *b {
+                                break;
+                            }
+
+                            prev_peeked = prev.next();
+                            cur.next();
                         }
 
-                        prev_peeked = prev.next();
-                        cur.next();
-                    }
+                        // We iterate previous in reverse in case we implement XML in the future
+                        let mut prev = prev.rev().chain(prev_peeked);
+                        prev.next();
 
-                    // We iterate previous in reverse in case we implement XML in the future
-                    let mut prev = prev.rev().chain(prev_peeked);
+                        for item in prev {
+                            handler.sub_object_end(&config_ctx, item)?;
+                        }
+
+                        while let Some(item) = cur.next() {
+                            if cur.peek().is_some() {
+                                handler.sub_object_begin(&config_ctx, item)?;
+                            }
+                        }
+                    } else {
+                        let mut structure = var.structure.clone().peekable();
+                        while let Some(item) = structure.next() {
+                            if structure.peek().is_some() {
+                                handler.sub_object_begin(&config_ctx, item)?;
+                            }
+                        }
+                    }
+                    match var.ty {
+                        WriteVarType::Simple {
+                            package,
+                            name,
+                            ty,
+                            ignore_empty,
+                        } => handler.write_var(&config_ctx, package, name, ty, var.structure.clone(), ignore_empty)?,
+                        WriteVarType::File { data, } => handler.include_fvar(&config_ctx, data, var.structure.clone(), &package.config_sub_dir())?,
+                    }
+                    
+                    previous = Some(var.structure);
+                }
+
+                if let Some(previous) = previous {
+                    let mut prev = previous.rev();
                     prev.next();
 
                     for item in prev {
                         handler.sub_object_end(&config_ctx, item)?;
                     }
+                }
 
-                    while let Some(item) = cur.next() {
-                        if cur.peek().is_some() {
-                            handler.sub_object_begin(&config_ctx, item)?;
-                        }
+                for (var, var_spec) in ivars {
+                    match &var_spec.ty {
+                        VarType::Path { file_type: Some(file_type), create: Some(create) } => {
+                            let owner = if create.owner == "$service" {
+                                package.service_user().expect("Attempt to use service user but the package is not a service.")
+                            } else {
+                                &create.owner
+                            };
+
+                            let group = if create.group == "$service" {
+                                package.service_user().expect("Attempt to use service group but it's missing or the package is not a service.")
+                            } else {
+                                &create.group
+                            };
+
+                            handler.create_path(&config_ctx, var, file_type, create.mode, owner, group, create.only_parent)?;
+                        },
+                        VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
+                        _ => (),
                     }
-                } else {
-                    let mut structure = var.structure.clone().peekable();
-                    while let Some(item) = structure.next() {
-                        if structure.peek().is_some() {
-                            handler.sub_object_begin(&config_ctx, item)?;
+                }
+
+                handler.finish_config(&config_ctx)?;
+
+                if let Some(postprocess) = postprocess {
+                    for generated in &postprocess.generates {
+                        let path = match &generated.ty {
+                            GeneratedType::File(path) => path,
+                            GeneratedType::Dir(path) => path,
+                        };
+                        let path = if path.starts_with('/') {
+                            Cow::<str>::Borrowed(&path)
+                        } else {
+                            Cow::<str>::Owned(format!("/etc/{}/{}", package.config_sub_dir(), path))
+                        };
+                        if let Some(pos) = path.rfind('/') {
+                            handler.create_tree(&config_ctx, &path[..pos])?;
+                        } else {
+                            handler.create_tree(&config_ctx, &path)?;
                         }
+                        triggers.insert(path);
                     }
-                }
-                match var.ty {
-                    WriteVarType::Simple {
-                        package,
-                        name,
-                        ty,
-                        ignore_empty,
-                    } => handler.write_var(&config_ctx, package, name, ty, var.structure.clone(), ignore_empty)?,
-                    WriteVarType::File { data, } => handler.include_fvar(&config_ctx, data, var.structure.clone(), &package.config_sub_dir())?,
-                }
-                
-                previous = Some(var.structure);
-            }
-
-            if let Some(previous) = previous {
-                let mut prev = previous.rev();
-                prev.next();
-
-                for item in prev {
-                    handler.sub_object_end(&config_ctx, item)?;
+                    handler.postprocess_conf_file(&config_ctx, &postprocess.command)?;
                 }
             }
 
-            for (var, var_spec) in ivars {
-                match &var_spec.ty {
-                    VarType::Path { file_type: Some(file_type), create: Some(create) } => {
-                        let owner = if create.owner == "$service" {
-                            package.service_user().expect("Attempt to use service user but the package is not a service.")
-                        } else {
-                            &create.owner
-                        };
+            triggers.insert(Cow::Owned(file_name));
+        }
+    }
 
-                        let group = if create.group == "$service" {
-                            package.service_user().expect("Attempt to use service group but it's missing or the package is not a service.")
-                        } else {
-                            &create.group
-                        };
+    let abs_config_dir = format!("/etc/{}", package.config_sub_dir());
 
-                        handler.create_path(&config_ctx, var, file_type, create.mode, owner, group, create.only_parent)?;
-                    },
-                    VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
-                    _ => (),
+    if let Some(conf_dir) = package.conf_dir() {
+        interested.insert(format!("/etc/{}/{}", package.config_sub_dir(), conf_dir.trim_end_matches('/')));
+    }
+
+    let mut activated = HashSet::new();
+
+    for trigger in &triggers {
+        if let Some(pos) = trigger.rfind('/') {
+            let parent = &trigger[..pos];
+            if !interested.contains(&**trigger) && !interested.contains(parent) {
+                handler.activate_trigger(trigger, true)?;
+                if parent != abs_config_dir && !triggers.contains(parent) && !activated.contains(parent) {
+                    handler.activate_trigger(parent, true)?;
+                    activated.insert(parent);
                 }
-            }
-
-            handler.finish_config(&config_ctx)?;
-
-            if let Some(postprocess) = postprocess {
-                handler.postprocess_conf_file(&config_ctx, postprocess)?;
             }
         }
     }

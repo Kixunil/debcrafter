@@ -1,26 +1,54 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package};
+use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package, GeneratedType};
 use crate::codegen::{LazyCreateBuilder};
+use std::borrow::Cow;
+use std::collections::HashSet;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let out = out.set_header("#!/bin/bash\n\nif [ \"$1\" = purge ];\nthen\n");
     let mut out = out.finalize();
     let mut trigger_dir = false;
+    let mut triggers = HashSet::new();
     for (file_name, conf) in instance.config() {
-        if let ConfType::Dynamic { .. } = &conf.conf_type {
-            writeln!(out, "\trm -f /etc/{}/{}", instance.config_sub_dir(), file_name)?;
-            writeln!(out, "\tdpkg-trigger /etc/{}/{}", instance.config_sub_dir(), file_name)?;
-            if let Some(pos) = file_name.rfind('/') {
-                // We need to trigger the relevant directories in order to update other packages
-                writeln!(out, "\tdpkg-trigger /etc/{}/{}", instance.config_sub_dir(), &file_name[..pos])?;
-            } else {
-                trigger_dir = true;
+        if let ConfType::Dynamic { postprocess, .. } = &conf.conf_type {
+            let abs_file = format!("/etc/{}/{}", instance.config_sub_dir(), file_name);
+            writeln!(out, "\trm -f {}", abs_file)?;
+
+            triggers.insert(Cow::Owned(abs_file));
+
+            if let Some(postprocess) = postprocess {
+                for generated in &postprocess.generates {
+                    let (path, is_dir) = match &generated.ty {
+                        GeneratedType::File(path) => (path, false),
+                        GeneratedType::Dir(path) => (path, true),
+                    };
+                    let path = if path.starts_with('/') {
+                        Cow::<str>::Borrowed(&path)
+                    } else {
+                        Cow::<str>::Owned(format!("/etc/{}/{}", instance.config_sub_dir(), path))
+                    };
+                    if is_dir {
+                        writeln!(out, "\trm -f {}", path)?;
+                    } else {
+                        writeln!(out, "\trm -rf {}", path)?;
+                    }
+                    triggers.insert(path);
+                }
             }
         }
     }
 
-    if trigger_dir {
-        writeln!(out, "\tdpkg-trigger /etc/{}", instance.config_sub_dir())?;
+    let mut activated = HashSet::new();
+
+    for trigger in &triggers {
+        writeln!(out, "\tdpkg-trigger {}", trigger)?;
+        if let Some(pos) = trigger.rfind('/') {
+            let parent = &trigger[..pos];
+            if parent != instance.config_sub_dir() && !triggers.contains(parent) && !activated.contains(parent) {
+                writeln!(out, "\tdpkg-trigger {}", parent)?;
+                activated.insert(parent);
+            }
+        }
     }
 
     if let Some(out) = out.created() {

@@ -86,13 +86,6 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error> {
         self.var_written = false;
 
-        if config.extension {
-            writeln!(self.out, "dpkg-trigger --await {}", config.file_name)?;
-            if let Some(pos) = config.file_name.rfind('/') {
-                writeln!(self.out, "dpkg-trigger --await {}", &config.file_name[..pos])?;
-            }
-        }
-
         writeln!(self.out, "mkdir -p \"`dirname \"{}\"`\"", config.file_name)?;
 
         match (config.format, config.with_header) {
@@ -240,6 +233,19 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
 
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error> {
         writeln!(self.out, "cat \"{}\" >> \"{}\"", file, config.file_name)
+    }
+
+    fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error> {
+        if no_await {
+            writeln!(self.out, "dpkg-trigger --no-await \"{}\"", trigger)
+        } else {
+            writeln!(self.out, "dpkg-trigger --await \"{}\"", trigger)
+        }
+    }
+
+    fn create_tree(&mut self, config: &Config, path: &str) -> Result<(), Self::Error> {
+        writeln!(self.out, "mkdir -p \"{}\"", path)?;
+        writeln!(self.out, "chmod 750 \"{}\"", path)
     }
 
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error> {

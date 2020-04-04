@@ -262,8 +262,31 @@ pub enum ConfType {
         cat_files: HashSet<String>,
         comment: Option<String>,
         // Command to run after creating whole config file
-        postprocess: Option<Vec<String>>,
+        postprocess: Option<PostProcess>,
     },
+}
+
+#[derive(Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct PostProcess {
+    pub command: Vec<String>,
+    #[serde(default)]
+    pub generates: Vec<GeneratedFile>,
+}
+
+#[derive(Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct GeneratedFile {
+    #[serde(flatten)]
+    pub ty: GeneratedType,
+    pub internal: bool,
+}
+
+#[derive(Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneratedType {
+    File(String),
+    Dir(String),
 }
 
 #[derive(Deserialize, Eq, PartialEq)]
