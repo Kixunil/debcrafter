@@ -25,6 +25,8 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             .values()
             .find(|config| match &config.conf_type {
                 ConfType::Dynamic { postprocess: Some(_), .. } => true,
+                ConfType::Dynamic { cat_dir: Some(_), .. } => true,
+                ConfType::Dynamic { cat_files, .. } if cat_files.len() > 0 => true,
                 _ => false,
             })
             .is_some()
