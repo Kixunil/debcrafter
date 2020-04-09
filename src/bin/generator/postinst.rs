@@ -95,7 +95,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             },
             (ConfFormat::Json, true) => writeln!(self.out, "echo '{{' > \"{}\"", config.file_name)?,
             // Useful for flat includes
-            (ConfFormat::Json, false) => (),
+            (ConfFormat::Json, false) => writeln!(self.out, "echo -n > \"{}\"", config.file_name)?,
             (_, true) => panic!("Header supported for Yaml only"),
             _ => writeln!(self.out, "echo '# Automtically generated - DO NOT MODIFY!' > \"{}\"", config.file_name)?,
         }
