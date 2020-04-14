@@ -32,14 +32,15 @@ pub trait HandlePostinst: Sized {
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn include_fvar<'a, I>(&mut self, config: &Config, var: &FileVar, structure: I, subdir: &str) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
+    fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
-    fn postprocess_conf_file(&mut self, config: &Config, command: &[String]) -> Result<(), Self::Error>;
+    fn postprocess_conf_file(&mut self, command: &[String]) -> Result<(), Self::Error>;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
     fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error>;
-    fn create_tree(&mut self, config: &Config, path: &str) -> Result<(), Self::Error>;
+    fn create_tree(&mut self, path: &str) -> Result<(), Self::Error>;
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
 }
@@ -229,9 +230,32 @@ impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clon
 
 impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
 
+fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P, triggers: &mut HashSet<Cow<'b, str>>, postprocess: &'b crate::PostProcess) -> Result<(), T::Error> {
+    for generated in &postprocess.generates {
+        let path = match &generated.ty {
+            GeneratedType::File(path) => path,
+            GeneratedType::Dir(path) => path,
+        };
+        let path = if path.starts_with('/') {
+            Cow::<str>::Borrowed(&path)
+        } else {
+            Cow::<str>::Owned(format!("/etc/{}/{}", package.config_sub_dir(), path))
+        };
+        if let Some(pos) = path.rfind('/') {
+            handler.create_tree(&path[..pos])?;
+        } else {
+            handler.create_tree(&path)?;
+        }
+        triggers.insert(path);
+    }
+    handler.postprocess_conf_file(&postprocess.command)?;
+    Ok(())
+}
+
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
     let mut triggers = HashSet::<Cow<str>>::new();
     let mut interested = HashSet::<String>::new();
+    let mut needs_stopped_service = false;
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
@@ -440,28 +464,23 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 handler.finish_config(&config_ctx)?;
 
                 if let Some(postprocess) = postprocess {
-                    for generated in &postprocess.generates {
-                        let path = match &generated.ty {
-                            GeneratedType::File(path) => path,
-                            GeneratedType::Dir(path) => path,
-                        };
-                        let path = if path.starts_with('/') {
-                            Cow::<str>::Borrowed(&path)
-                        } else {
-                            Cow::<str>::Owned(format!("/etc/{}/{}", package.config_sub_dir(), path))
-                        };
-                        if let Some(pos) = path.rfind('/') {
-                            handler.create_tree(&config_ctx, &path[..pos])?;
-                        } else {
-                            handler.create_tree(&config_ctx, &path)?;
-                        }
-                        triggers.insert(path);
+                    if postprocess.stop_service {
+                        needs_stopped_service = true;
+                    } else {
+                        handle_postprocess(handler, package, &mut triggers, postprocess)?;
                     }
-                    handler.postprocess_conf_file(&config_ctx, &postprocess.command)?;
                 }
             }
 
             triggers.insert(Cow::Owned(file_name));
+        }
+    }
+
+    if needs_stopped_service {
+        for (conf_name, config) in package.config() {
+            if let ConfType::Dynamic { postprocess: Some(postprocess @ crate::PostProcess { stop_service: true, .. }), .. } = &config.conf_type {
+                handle_postprocess(handler, package, &mut triggers, postprocess)?;
+            }
         }
     }
 

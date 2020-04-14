@@ -272,6 +272,8 @@ pub struct PostProcess {
     pub command: Vec<String>,
     #[serde(default)]
     pub generates: Vec<GeneratedFile>,
+    #[serde(default)]
+    pub stop_service: bool,
 }
 
 #[derive(Deserialize, Eq, PartialEq)]

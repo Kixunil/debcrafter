@@ -243,7 +243,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
     }
 
-    fn create_tree(&mut self, config: &Config, path: &str) -> Result<(), Self::Error> {
+    fn create_tree(&mut self, path: &str) -> Result<(), Self::Error> {
         writeln!(self.out, "mkdir -p \"{}\"", path)?;
         writeln!(self.out, "chmod 750 \"{}\"", path)
     }
@@ -278,8 +278,13 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "EOF\n")
     }
 
+    fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error> {
+        writeln!(self.out, "systemctl is-active {} && service_was_running=1 || service_was_running = 0", instance.service_name())?;
+        writeln!(self.out, "systemctl stop {}", instance.service_name())
+    }
+
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error> {
-        writeln!(self.out, "if [ \"$1\" = triggered ];")?;
+        writeln!(self.out, "if [ \"$1\" = triggered -a \"$service_was_running\" '!=' 0 ];")?;
         writeln!(self.out, "then")?;
         writeln!(self.out, "\tdeb-systemd-invoke restart {}", instance.service_name())?;
         writeln!(self.out, "fi\n")
@@ -292,7 +297,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "fi")
     }
 
-    fn postprocess_conf_file(&mut self, _config: &Config, command: &[String]) -> Result<(), Self::Error> {
+    fn postprocess_conf_file(&mut self, command: &[String]) -> Result<(), Self::Error> {
         for arg in command {
             write!(self.out, "'")?;
             for ch in arg.chars() {
