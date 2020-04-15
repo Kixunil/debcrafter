@@ -257,7 +257,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
     let mut interested = HashSet::<String>::new();
     let mut needs_stopped_service = false;
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
+        if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
             // Manual scope due to borrowing issues.
             {
@@ -273,18 +273,6 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 handler.prepare_config(&config_ctx)?;
                 if let Some(comment) = comment {
                     handler.write_comment(&config_ctx, comment)?;
-                }
-
-                if let Some(cat_dir) = cat_dir {
-                    let conf_dir = format!("/etc/{}/{}", package.config_sub_dir(), cat_dir);
-                    handler.include_conf_dir(&config_ctx, &conf_dir)?;
-                    interested.insert(conf_dir);
-                }
-
-                for file in cat_files {
-                    let conf_file = format!("/etc/{}/{}", package.config_sub_dir(), file);
-                    handler.include_conf_file(&config_ctx, &conf_file)?;
-                    interested.insert(conf_file);
                 }
 
                 for (var, var_spec) in ivars {
@@ -465,20 +453,50 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     }
                 }
 
-                handler.finish_config(&config_ctx)?;
-
-                if let Some(postprocess) = postprocess {
-                    if postprocess.stop_service {
-                        needs_stopped_service = true;
-                    } else {
-                        handle_postprocess(handler, package, &mut triggers, postprocess)?;
-                    }
-                }
             }
 
             triggers.insert(Cow::Owned(file_name));
         }
     }
+
+    for (conf_name, config) in package.config() {
+        if let ConfType::Dynamic { format, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
+            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
+
+            let config_ctx = Config {
+                package_name: package.config_pkg_name(),
+                file_name: &file_name,
+                with_header: *with_header,
+                format,
+                public: config.public,
+                extension: package.is_conf_ext(),
+                change_group: package.service_group(),
+            };
+
+            if let Some(cat_dir) = cat_dir {
+                let conf_dir = format!("/etc/{}/{}", package.config_sub_dir(), cat_dir);
+                handler.include_conf_dir(&config_ctx, &conf_dir)?;
+                interested.insert(conf_dir);
+            }
+
+            for file in cat_files {
+                let conf_file = format!("/etc/{}/{}", package.config_sub_dir(), file);
+                handler.include_conf_file(&config_ctx, &conf_file)?;
+                interested.insert(conf_file);
+            }
+
+            handler.finish_config(&config_ctx)?;
+
+            if let Some(postprocess) = postprocess {
+                if postprocess.stop_service {
+                    needs_stopped_service = true;
+                } else {
+                    handle_postprocess(handler, package, &mut triggers, postprocess)?;
+                }
+            }
+        }
+    }
+
 
     if needs_stopped_service {
         for (conf_name, config) in package.config() {
