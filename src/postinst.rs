@@ -308,15 +308,17 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 let mut write_vars = Vec::new();
 
                 for (var, var_spec) in ivars {
-                    write_vars.push(WriteVar {
-                        structure: compute_structure(&var, &var_spec.structure),
-                        ty: WriteVarType::Simple {
-                            ty: &var_spec.ty,
-                            package: &config_ctx.package_name,
-                            name: var,
-                            ignore_empty: var_spec.ignore_empty,
-                        },
-                    });
+                    if var_spec.store {
+                        write_vars.push(WriteVar {
+                            structure: compute_structure(&var, &var_spec.structure),
+                            ty: WriteVarType::Simple {
+                                ty: &var_spec.ty,
+                                package: &config_ctx.package_name,
+                                name: var,
+                                ignore_empty: var_spec.ignore_empty,
+                            },
+                        });
+                    }
                 }
 
                 for (pkg_name, vars) in evars {
@@ -350,15 +352,17 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 }
 
                 for (var, var_spec) in hvars {
-                    write_vars.push(WriteVar {
-                        structure: compute_structure(&var, &var_spec.structure),
-                        ty: WriteVarType::Simple {
-                            ty: &var_spec.ty,
-                            package: &config_ctx.package_name,
-                            name: var,
-                            ignore_empty: var_spec.ignore_empty,
-                        },
-                    });
+                    if var_spec.store {
+                        write_vars.push(WriteVar {
+                            structure: compute_structure(&var, &var_spec.structure),
+                            ty: WriteVarType::Simple {
+                                ty: &var_spec.ty,
+                                package: &config_ctx.package_name,
+                                name: var,
+                                ignore_empty: var_spec.ignore_empty,
+                            },
+                        });
+                    }
                 }
 
                 for (var, var_spec) in fvars {

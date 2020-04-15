@@ -321,6 +321,8 @@ pub struct InternalVar {
     #[serde(default)]
     pub default: Option<String>,
     pub priority: DebconfPriority,
+    #[serde(default = "create_true")]
+    pub store: bool,
     #[serde(default)]
     pub ignore_empty: bool,
     pub structure: Option<Vec<String>>,
@@ -353,6 +355,8 @@ pub struct HiddenVar {
     pub ty: VarType,
     #[serde(default)]
     pub ignore_empty: bool,
+    #[serde(default = "create_true")]
+    pub store: bool,
     #[serde(flatten)]
     pub val: HiddenVarVal,
     pub structure: Option<Vec<String>>,
