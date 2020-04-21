@@ -47,6 +47,12 @@ pub struct Package {
     pub spec: PackageSpec,
     #[serde(default)]
     pub depends: HashSet<String>,
+    #[serde(default)]
+    pub provides: HashSet<String>,
+    #[serde(default)]
+    pub recommends: HashSet<String>,
+    #[serde(default)]
+    pub suggests: HashSet<String>,
 }
 
 fn load_include(dir: &Path, name: &str) -> Package {
@@ -104,6 +110,9 @@ impl Package {
             spec: &self.spec,
             includes,
             depends: &self.depends,
+            provides: &self.provides,
+            recommends: &self.recommends,
+            suggests: &self.suggests,
         })
     }
 }
@@ -417,6 +426,9 @@ pub struct PackageInstance<'a> {
     pub spec: &'a PackageSpec,
     pub includes: Option<&'a HashMap<String, Package>>,
     pub depends: &'a HashSet<String>,
+    pub provides: &'a HashSet<String>,
+    pub recommends: &'a HashSet<String>,
+    pub suggests: &'a HashSet<String>,
 }
 
 impl<'a> PackageInstance<'a> {

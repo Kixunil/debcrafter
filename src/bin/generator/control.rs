@@ -55,6 +55,18 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .collect::<HashSet<Cow<'_, _>>>()
 }
 
+fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: io::Write, I: IntoIterator, <I as IntoIterator>::Item: std::fmt::Display {
+    let mut iter = deps.into_iter();
+    if let Some(first) = iter.next() {
+        write!(out, "{}: {}", name, first)?;
+        for item in iter {
+            write!(out, ",\n         {}", item)?;
+        }
+        writeln!(out)?;
+    }
+    Ok(())
+}
+
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
 
@@ -67,10 +79,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         write!(out, "{},\n         ", dep)?;
     }
     writeln!(out, "${{misc:Depends}}")?;
-    // TODO
-    //writeln!(out, "Recommends: ")?;
-    //writeln!(out, "Suggests: ")?;
-    //writeln!(out, "Provides: ")?;
+
+    write_deps(&mut out, "Recommends", instance.recommends)?;
+    write_deps(&mut out, "Suggests", instance.suggests)?;
+    write_deps(&mut out, "Provides", instance.provides)?;
+
     if let PackageSpec::ConfExt(confext) = &instance.spec {
         writeln!(out, "Enhances: {}", confext.extends)?;
         if confext.replaces {
