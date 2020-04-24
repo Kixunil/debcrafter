@@ -215,6 +215,8 @@ pub struct ConfExtPackageSpec {
     #[serde(default)]
     pub replaces: bool,
     #[serde(default)]
+    pub depends_on_extended: bool,
+    #[serde(default)]
     pub external: bool,
     #[serde(default)]
     pub summary: Option<String>,

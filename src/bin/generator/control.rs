@@ -40,7 +40,11 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
             };
             (Some(&service.bin_package), &service.config, extra)
         },
-        PackageSpec::ConfExt(confext) => (Some(&confext.extends), &confext.config, None),
+        PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
+            (Some(&confext.extends), &confext.config, None)
+        } else {
+            (None, &confext.config, None)
+        },
     };
     config
         .iter()
@@ -80,16 +84,22 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     }
     writeln!(out, "${{misc:Depends}}")?;
 
-    write_deps(&mut out, "Recommends", instance.recommends)?;
     write_deps(&mut out, "Suggests", instance.suggests)?;
     write_deps(&mut out, "Provides", instance.provides)?;
     write_deps(&mut out, "Conflicts", instance.conflicts)?;
 
     if let PackageSpec::ConfExt(confext) = &instance.spec {
+        if confext.depends_on_extended {
+            write_deps(&mut out, "Recommends", instance.recommends)?;
+        } else {
+            write_deps(&mut out, "Recommends", std::iter::once(&confext.extends).chain(instance.recommends))?;
+        }
         writeln!(out, "Enhances: {}", confext.extends)?;
         if confext.replaces {
             writeln!(out, "Replaces: {}", confext.extends)?;
         }
+    } else {
+        write_deps(&mut out, "Recommends", instance.recommends)?;
     }
     if let Some(summary) = instance.spec.summary() {
         writeln!(out, "Description: {}", summary)?;
