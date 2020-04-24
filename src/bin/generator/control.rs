@@ -83,6 +83,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     write_deps(&mut out, "Recommends", instance.recommends)?;
     write_deps(&mut out, "Suggests", instance.suggests)?;
     write_deps(&mut out, "Provides", instance.provides)?;
+    write_deps(&mut out, "Conflicts", instance.conflicts)?;
 
     if let PackageSpec::ConfExt(confext) = &instance.spec {
         writeln!(out, "Enhances: {}", confext.extends)?;

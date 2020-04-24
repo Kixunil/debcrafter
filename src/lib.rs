@@ -53,6 +53,8 @@ pub struct Package {
     pub recommends: HashSet<String>,
     #[serde(default)]
     pub suggests: HashSet<String>,
+    #[serde(default)]
+    pub conflicts: HashSet<String>,
 }
 
 fn load_include(dir: &Path, name: &str) -> Package {
@@ -113,6 +115,7 @@ impl Package {
             provides: &self.provides,
             recommends: &self.recommends,
             suggests: &self.suggests,
+            conflicts: &self.conflicts,
         })
     }
 }
@@ -429,6 +432,7 @@ pub struct PackageInstance<'a> {
     pub provides: &'a HashSet<String>,
     pub recommends: &'a HashSet<String>,
     pub suggests: &'a HashSet<String>,
+    pub conflicts: &'a HashSet<String>,
 }
 
 impl<'a> PackageInstance<'a> {
