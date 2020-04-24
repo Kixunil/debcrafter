@@ -72,6 +72,8 @@ fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: 
 }
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
+    use debcrafter::BoolOrVecString;
+
     let mut out = out.finalize();
 
     writeln!(out)?;
@@ -95,8 +97,10 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             write_deps(&mut out, "Recommends", std::iter::once(&confext.extends).chain(instance.recommends))?;
         }
         writeln!(out, "Enhances: {}", confext.extends)?;
-        if confext.replaces {
-            writeln!(out, "Replaces: {}", confext.extends)?;
+        match &confext.replaces {
+            BoolOrVecString::Bool(false) => (),
+            BoolOrVecString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends)?,
+            BoolOrVecString::VecString(replaces) => write_deps(&mut out, "Replaces", replaces)?,
         }
     } else {
         write_deps(&mut out, "Recommends", instance.recommends)?;

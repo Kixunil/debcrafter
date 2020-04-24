@@ -209,11 +209,50 @@ pub struct ServicePackageSpec {
     pub extra_groups: HashMap<String, ExtraGroup>,
 }
 
+pub enum BoolOrVecString {
+    Bool(bool),
+    VecString(Vec<String>),
+}
+
+impl Default for BoolOrVecString {
+    fn default() -> Self {
+        BoolOrVecString::Bool(false)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BoolOrVecString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = BoolOrVecString;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "bool or a sequence of strings")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
+                Ok(BoolOrVecString::Bool(v))
+            }
+
+            fn visit_seq<A>(self, mut v: A) -> Result<Self::Value, A::Error> where A: serde::de::SeqAccess<'de> {
+                let mut vec = v.size_hint().map(Vec::with_capacity).unwrap_or_else(Vec::new);
+                while let Some(item) = v.next_element()? {
+                    vec.push(item);
+                }
+                Ok(BoolOrVecString::VecString(vec))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ConfExtPackageSpec {
     pub extends: String,
     #[serde(default)]
-    pub replaces: bool,
+    pub replaces: BoolOrVecString,
     #[serde(default)]
     pub depends_on_extended: bool,
     #[serde(default)]
