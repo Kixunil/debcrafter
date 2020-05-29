@@ -10,6 +10,7 @@ pub struct Config<'a> {
     pub package_name: &'a str,
     pub file_name: &'a str,
     pub format: &'a ConfFormat,
+    pub insert_header: Option<&'a str>,
     pub with_header: bool,
     pub public: bool,
     pub change_group: Option<&'a str>,
@@ -257,13 +258,14 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
     let mut interested = HashSet::<String>::new();
     let mut needs_stopped_service = false;
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, with_header, .. } = &config.conf_type {
+        if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, insert_header, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
             // Manual scope due to borrowing issues.
             {
                 let config_ctx = Config {
                     package_name: package.config_pkg_name(),
                     file_name: &file_name,
+                    insert_header: insert_header.as_ref().map(AsRef::as_ref),
                     with_header: *with_header,
                     format,
                     public: config.public,
@@ -460,12 +462,13 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
     }
 
     for (conf_name, config) in package.config() {
-        if let ConfType::Dynamic { format, cat_dir, cat_files, postprocess, with_header, .. } = &config.conf_type {
+        if let ConfType::Dynamic { format, cat_dir, cat_files, postprocess, insert_header, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
 
             let config_ctx = Config {
                 package_name: package.config_pkg_name(),
                 file_name: &file_name,
+                insert_header: insert_header.as_ref().map(AsRef::as_ref),
                 with_header: *with_header,
                 format,
                 public: config.public,

@@ -300,6 +300,7 @@ pub enum ConfType {
     Static { content: String, #[serde(default)] internal: bool, },
     Dynamic {
         format: ConfFormat,
+        insert_header: Option<String>,
         #[serde(default)]
         with_header: bool,
         #[serde(default)]
