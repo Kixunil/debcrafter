@@ -27,6 +27,14 @@ pub struct Source {
     pub packages: HashSet<String>,
 }
 
+#[derive(Deserialize)]
+pub struct SingleSource {
+    pub name: String,
+    pub maintainer: Option<String>,
+    #[serde(flatten)]
+    pub source: Source,
+}
+
 static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::Result<()>)] = &[
     ("config", crate::generator::config::generate),
     ("install", crate::generator::install::generate),
@@ -148,11 +156,27 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 }
 
 fn main() {
-    let (spec_file, dest, _) = codegen::get_args();
+    let mut args = std::env::args_os();
+    args.next().expect("Not even zeroth argument given");
+    let spec_file = std::path::PathBuf::from(args.next().expect("Source not specified."));
+    let dest = std::path::PathBuf::from(args.next().expect("Dest not specified."));
+    let mode = args.next();
 
-    let repo = debcrafter::load_file::<Repository, _>(&spec_file);
-    
-    for (name, mut source) in repo.sources {
-        gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer)
+    match mode {
+        Some(ref mode) if mode == "--split-source" => {
+
+            let mut source = debcrafter::load_file::<SingleSource, _>(&spec_file);
+            let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
+            
+            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer)
+        },
+        _ => {
+            let repo = debcrafter::load_file::<Repository, _>(&spec_file);
+            
+            for (name, mut source) in repo.sources {
+                gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer)
+            }
+        }
     }
+
 }
