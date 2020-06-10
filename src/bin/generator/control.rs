@@ -79,7 +79,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     writeln!(out)?;
     writeln!(out, "Package: {}", instance.name)?;
     writeln!(out, "Priority: optional")?;
-    writeln!(out, "Architecture: all")?;
+    let architecture = match &instance.spec {
+        PackageSpec::Base(base) => &base.architecture,
+        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => "all",
+    };
+    writeln!(out, "Architecture: {}", architecture)?;
     write!(out, "Depends: ")?;
     for dep in calculate_dependencies(instance) {
         write!(out, "{},\n         ", dep)?;

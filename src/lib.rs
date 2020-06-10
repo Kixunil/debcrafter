@@ -174,6 +174,7 @@ pub struct ExtraGroup {
 
 #[derive(Deserialize)]
 pub struct BasePackageSpec {
+    pub architecture: String,
     #[serde(default)]
     pub config: HashMap<String, Config>,
     #[serde(default)]
