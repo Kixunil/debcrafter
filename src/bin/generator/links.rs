@@ -12,5 +12,15 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
+    let additional_links = match &instance.spec {
+        debcrafter::PackageSpec::Service(spec) => &spec.add_links,
+        debcrafter::PackageSpec::ConfExt(spec) => &spec.add_links,
+        debcrafter::PackageSpec::Base(spec) => &spec.add_links,
+    };
+
+    for link in additional_links {
+        writeln!(out, "{}", link)?;
+    }
+
     Ok(())
 }

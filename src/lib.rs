@@ -183,6 +183,14 @@ pub struct BasePackageSpec {
     pub long_doc: Option<String>,
     #[serde(default)]
     pub databases: HashMap<String, DbConfig>,
+    #[serde(default)]
+    pub add_files: Vec<String>,
+    #[serde(default)]
+    pub add_dirs: Vec<String>,
+    #[serde(default)]
+    pub add_links: Vec<String>,
+    #[serde(default)]
+    pub add_manpages: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +216,14 @@ pub struct ServicePackageSpec {
     pub databases: HashMap<String, DbConfig>,
     #[serde(default)]
     pub extra_groups: HashMap<String, ExtraGroup>,
+    #[serde(default)]
+    pub add_files: Vec<String>,
+    #[serde(default)]
+    pub add_dirs: Vec<String>,
+    #[serde(default)]
+    pub add_links: Vec<String>,
+    #[serde(default)]
+    pub add_manpages: Vec<String>,
 }
 
 pub enum BoolOrVecString {
@@ -264,6 +280,14 @@ pub struct ConfExtPackageSpec {
     pub long_doc: Option<String>,
     #[serde(default)]
     pub config: HashMap<String, Config>,
+    #[serde(default)]
+    pub add_files: Vec<String>,
+    #[serde(default)]
+    pub add_dirs: Vec<String>,
+    #[serde(default)]
+    pub add_links: Vec<String>,
+    #[serde(default)]
+    pub add_manpages: Vec<String>,
 }
 
 #[derive(Deserialize)]

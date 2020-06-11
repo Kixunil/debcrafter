@@ -45,7 +45,8 @@ Generated files
 - [x] compat
 - [x] install
 - [x] links
-- [ ] dirs
+- [x] dirs
+- [x] manpages
 - [ ] desktop
 - [ ] conffiles (not needed actually thanks to DH)
 

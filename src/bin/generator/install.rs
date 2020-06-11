@@ -21,5 +21,15 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
+    let additional_files = match &instance.spec {
+        debcrafter::PackageSpec::Service(spec) => &spec.add_files,
+        debcrafter::PackageSpec::ConfExt(spec) => &spec.add_files,
+        debcrafter::PackageSpec::Base(spec) => &spec.add_files,
+    };
+
+    for file in additional_files {
+        writeln!(out, "{}", file)?;
+    }
+
     Ok(())
 }
