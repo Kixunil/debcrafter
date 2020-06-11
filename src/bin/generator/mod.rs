@@ -1,6 +1,7 @@
 pub mod config;
 pub mod control;
 pub mod postinst;
+pub mod prerm;
 pub mod postrm;
 pub mod service;
 pub mod templates;

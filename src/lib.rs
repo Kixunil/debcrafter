@@ -191,6 +191,8 @@ pub struct BasePackageSpec {
     pub add_links: Vec<String>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
+    #[serde(default)]
+    pub alternatives: HashMap<String, Alternative>,
 }
 
 #[derive(Deserialize)]
@@ -224,6 +226,8 @@ pub struct ServicePackageSpec {
     pub add_links: Vec<String>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
+    #[serde(default)]
+    pub alternatives: HashMap<String, Alternative>,
 }
 
 pub enum BoolOrVecString {
@@ -288,6 +292,8 @@ pub struct ConfExtPackageSpec {
     pub add_links: Vec<String>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
+    #[serde(default)]
+    pub alternatives: HashMap<String, Alternative>,
 }
 
 #[derive(Deserialize)]
@@ -488,6 +494,13 @@ pub struct CreateFsObj {
     pub group: String,
     #[serde(default)]
     pub only_parent: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct Alternative {
+    pub name: String,
+    pub dest: String,
+    pub priority: u32,
 }
 
 pub struct PackageInstance<'a> {

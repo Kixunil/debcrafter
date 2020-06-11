@@ -284,6 +284,26 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
         writeln!(self.out, "EOF\n")
     }
+    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<debcrafter::Alternative> {
+        let mut written = false;
+        for (provider, alternative) in alternatives {
+            if !written {
+                writeln!(self.out, "if [ \"$1\" = configure ];")?;
+                writeln!(self.out, "then")?;
+                written = true;
+            }
+
+            let alternative = alternative.borrow();
+
+            writeln!(self.out, "update-alternatives --install \"{}\" \"{}\" \"{}\" {}", alternative.dest, alternative.name, provider.as_ref(), alternative.priority)?;
+        }
+
+        if written {
+            writeln!(self.out, "fi")?;
+        }
+
+        Ok(())
+    }
 
     fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error> {
         writeln!(self.out, "systemctl is-active {} && service_was_running=1 || service_was_running = 0", instance.service_name())?;

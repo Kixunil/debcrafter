@@ -42,6 +42,7 @@ static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::
     ("links", crate::generator::links::generate),
     ("manpages", crate::generator::manpages::generate),
     ("postinst", crate::generator::postinst::generate),
+    ("prerm", crate::generator::prerm::generate),
     ("postrm", crate::generator::postrm::generate),
     ("templates", crate::generator::templates::generate),
     ("triggers", crate::generator::triggers::generate),

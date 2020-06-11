@@ -40,6 +40,7 @@ pub trait HandlePostinst: Sized {
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
     fn postprocess_conf_file(&mut self, command: &[String]) -> Result<(), Self::Error>;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
+    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<crate::Alternative>;
     fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error>;
     fn create_tree(&mut self, path: &str) -> Result<(), Self::Error>;
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
@@ -556,6 +557,14 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     }
 
     handle_config(&mut handler, instance)?;
+
+    let alternatives = match &instance.spec {
+        PackageSpec::Service(spec) => &spec.alternatives,
+        PackageSpec::ConfExt(spec) => &spec.alternatives,
+        PackageSpec::Base(spec) => &spec.alternatives,
+    };
+
+    handler.register_alternatives(alternatives)?;
 
     if let Some(service) = instance.as_service() {
         handler.restart_service_if_needed(&service)?;
