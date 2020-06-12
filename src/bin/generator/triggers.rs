@@ -20,7 +20,12 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
         true
     } else {
-        instance
+        let has_patches = match &instance.spec {
+            debcrafter::PackageSpec::Service(spec) => !spec.patch_foreign.is_empty(),
+            debcrafter::PackageSpec::ConfExt(spec) => !spec.patch_foreign.is_empty(),
+            debcrafter::PackageSpec::Base(spec) => !spec.patch_foreign.is_empty(),
+        };
+        has_patches || instance
             .config()
             .values()
             .find(|config| match &config.conf_type {
@@ -59,6 +64,16 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                     }
                 },
             }
+        }
+
+        let patches = match &instance.spec {
+            debcrafter::PackageSpec::Service(spec) => &spec.patch_foreign,
+            debcrafter::PackageSpec::ConfExt(spec) => &spec.patch_foreign,
+            debcrafter::PackageSpec::Base(spec) => &spec.patch_foreign,
+        };
+
+        for (dest, _) in patches {
+            files_no_await.insert(format!("{}.distrib", dest));
         }
 
         for trigger in &dirs {

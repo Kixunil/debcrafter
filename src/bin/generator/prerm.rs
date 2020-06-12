@@ -30,11 +30,30 @@ fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> i
     Ok(())
 }
 
+fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
+    let patches = match &instance.spec {
+        PackageSpec::Service(spec) => &spec.patch_foreign,
+        PackageSpec::ConfExt(spec) => &spec.patch_foreign,
+        PackageSpec::Base(spec) => &spec.patch_foreign,
+    };
+
+    for (dest, _) in patches {
+        writeln!(out, "if [ `dpkg-divert --list \"{}\" | wc -l` -gt 0 ];", dest)?;
+        writeln!(out, "then")?;
+        writeln!(out, "\trm -f \"{}\"", dest)?;
+        writeln!(out, "\tdpkg-divert --remove --rename \"{}\"", dest)?;
+        writeln!(out, "fi")?;
+    }
+
+    Ok(())
+}
+
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let out = out.set_header("#!/bin/bash\n\nset -e\n\n");
     let mut out = out.finalize();
 
     write_alternatives(&mut out, instance)?;
+    write_patches(&mut out, instance)?;
 
     Ok(())
 }

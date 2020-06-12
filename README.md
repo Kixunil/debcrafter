@@ -39,8 +39,8 @@ Generated files
 - [x] triggers
 - [x] rules
 - [x] control
-- [ ] preinst (is it needed?)
-- [ ] prerm (is it needed?)
+- [x] preinst
+- [x] prerm
 - [x] postrm
 - [x] compat
 - [x] install

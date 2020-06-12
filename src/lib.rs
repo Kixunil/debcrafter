@@ -193,6 +193,8 @@ pub struct BasePackageSpec {
     pub add_manpages: Vec<String>,
     #[serde(default)]
     pub alternatives: HashMap<String, Alternative>,
+    #[serde(default)]
+    pub patch_foreign: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -228,6 +230,8 @@ pub struct ServicePackageSpec {
     pub add_manpages: Vec<String>,
     #[serde(default)]
     pub alternatives: HashMap<String, Alternative>,
+    #[serde(default)]
+    pub patch_foreign: HashMap<String, String>,
 }
 
 pub enum BoolOrVecString {
@@ -294,6 +298,8 @@ pub struct ConfExtPackageSpec {
     pub add_manpages: Vec<String>,
     #[serde(default)]
     pub alternatives: HashMap<String, Alternative>,
+    #[serde(default)]
+    pub patch_foreign: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]

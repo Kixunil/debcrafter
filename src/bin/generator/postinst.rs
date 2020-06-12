@@ -305,6 +305,26 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
+    fn patch_files<A, B, I>(&mut self, pkg_name: &str, patches: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: AsRef<str> {
+        for (dest, patch) in patches {
+            let dest = dest.as_ref();
+            let patch = patch.as_ref();
+
+            writeln!(self.out, "was_diverted=\"`dpkg-divert --list \"{}\" | wc -l`\"", dest)?;
+            writeln!(self.out, "if [ \"$was_diverted\" -eq 0 ];")?;
+            writeln!(self.out, "then")?;
+            writeln!(self.out, "\tdpkg-divert --add --rename --package \"{}\" \"{}\"", pkg_name, dest)?;
+            writeln!(self.out, "fi")?;
+            writeln!(self.out, "orig_file=\"`dpkg-divert --truename \"{}\"`\"", dest)?;
+            writeln!(self.out, "test -r \"$orig_file\"")?;
+            writeln!(self.out, "patch -o \"{}\" \"$orig_file\" \"{}\"", dest, patch)?;
+            writeln!(self.out, "chown --reference=\"$orig_file\" \"{}\"", dest)?;
+            writeln!(self.out, "chgrp --reference=\"$orig_file\" \"{}\"", dest)?;
+        }
+
+        Ok(())
+    }
+
     fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error> {
         writeln!(self.out, "systemctl is-active {} && service_was_running=1 || service_was_running = 0", instance.service_name())?;
         writeln!(self.out, "systemctl stop {}", instance.service_name())

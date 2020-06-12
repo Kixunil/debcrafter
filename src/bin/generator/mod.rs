@@ -1,5 +1,6 @@
 pub mod config;
 pub mod control;
+pub mod preinst;
 pub mod postinst;
 pub mod prerm;
 pub mod postrm;
