@@ -57,10 +57,11 @@ Features
 - [x] Plain `key=value` config files
 - [x] Toml config files
 - [x] Yaml config files
-- [ ] Json config files
+- [x] Json config files
 - [x] Set correct ownership and permission for config files and diretories configured from debconf
 - [x] Concat configuration for stuff that doesn't support conf dirs
 - [x] Configuration extension packages - packages that somehow modify configuration of another package
+- [x] Trivial ("base") packages - just a few things with little special casing
 - [ ] Binary packages (not sure if actually useful)
 - [ ] Library packages
 - [ ] Generate source package
@@ -76,16 +77,19 @@ Features
 - [ ] Scala
 - [ ] Python
 - [ ] Debhelper integration
-- [ ] Debconf integration
+- [x] Script-based debconf integration
+- [ ] Native debconf integration
 - [x] Dbconfig integrtion
 - [ ] Delegate maintainer scripts to a common specialized program for faster, more reliable and more easily auditable execution
 
 Package specification
 ---------------------
 
-Currently there are two kinds of packages: `Service` and `ConfExt`. Service packages make sure to configure a system-wide systemd service.
+Currently there are three kinds of packages: `Service`, `ConfExt`, and `Base`. Service packages make sure to configure a system-wide systemd service.
 
 ConfExt packages extend the configuration of services. They are used in cases when one *or more* packages need another package to be configured in a certain way in order to work. While this might be achieved with special scripts, dependencies describe the situation more cleanly.
+
+Base packges do only very little additional work. They can properly configure alternatives or patches and can be used for distributing binaries. A better support for binaries is planned in the future.
 
 Example of `Service` package specification:
 
