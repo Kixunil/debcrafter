@@ -1,6 +1,6 @@
 use std::{io, fs};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
 use codegen::{LazyCreateBuilder};
 use debcrafter::{Package, PackageInstance};
@@ -101,10 +101,11 @@ fn copy_changelog(deb_dir: &Path, source_dir: &Path, name: &str) {
     }
 }
 
-fn load_package(source_dir: &Path, package: &str) -> Package {
+fn load_package(source_dir: &Path, package: &str) -> (Package, PathBuf) {
     let mut filename = source_dir.join(package);
     filename.set_extension("sps");
-    Package::load(&filename)
+    let package = Package::load(&filename);
+    (package, filename)
 }
 
 fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: bool) -> LazyCreateBuilder {
@@ -113,11 +114,14 @@ fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: boo
     LazyCreateBuilder::new(file_name, append)
 }
 
-fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str) {
+fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str, mut dep_file: Option<&mut fs::File>) {
     let dir = dest.join(format!("{}-{}", name, source.version));
     let deb_dir = dir.join("debian");
     fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
     copy_changelog(&deb_dir, source_dir, name);
+
+    let mut deps = HashSet::new();
+    let mut deps_opt = dep_file.as_mut().map(|_| { &mut deps });
 
     // TODO: calculate dh-systemd dep instead
     gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
@@ -126,13 +130,10 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     let services = source.packages
         .iter()
         .map(|package| load_package(source_dir, &package))
-        .map(|package| {
-            let includes = package.load_includes(source_dir);
-            (package, includes)
-        })
-        .filter_map(|(package, includes)| {
+        .filter_map(|(package, filename)| {
             use debcrafter::postinst::Package as PostinstPackage;
-
+            let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename); &mut **deps});
+            let includes = package.load_includes(source_dir, deps_opt);
             let instance = package.instantiate(None, Some(&includes)).expect("Invalid variant");
 
             for &(extension, generator) in FILE_GENERATORS {
@@ -153,6 +154,17 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
         })
         .collect::<Vec<_>>();
 
+    if let Some(dep_file) = dep_file {
+        (|| -> Result<(), io::Error> {
+            write!(dep_file, "{}/debcrafter.stamp:", dir.display())?;
+            for dep in &deps {
+                write!(dep_file, " {}", dep.display())?;
+            }
+            writeln!(dep_file, "\n")?;
+            Ok(())
+        })().expect("Failed to write into dependency file")
+    }
+
     if services.len() > 0 {
         source.with_components.insert("systemd".to_owned());
     }
@@ -164,23 +176,32 @@ fn main() {
     args.next().expect("Not even zeroth argument given");
     let spec_file = std::path::PathBuf::from(args.next().expect("Source not specified."));
     let dest = std::path::PathBuf::from(args.next().expect("Dest not specified."));
-    let mode = args.next();
+    let mut split_source = false;
+    let mut write_deps = None;
 
-    match mode {
-        Some(ref mode) if mode == "--split-source" => {
+    while let Some(arg) = args.next() {
+        if arg == "--split-source" {
+            split_source = true;
+        }
 
-            let mut source = debcrafter::load_file::<SingleSource, _>(&spec_file);
-            let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
-            
-            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer)
-        },
-        _ => {
-            let repo = debcrafter::load_file::<Repository, _>(&spec_file);
-            
-            for (name, mut source) in repo.sources {
-                gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer)
-            }
+        if arg == "--write-deps" {
+            let file = args.next().expect("missing argument for --write-deps");
+            write_deps = Some(file.into_string().expect("Invalid UTF econding"));
         }
     }
 
+    let mut dep_file = write_deps.map(|dep_file| fs::File::create(dep_file).expect("failed to open dependency file"));
+
+    if split_source {
+        let mut source = debcrafter::load_file::<SingleSource, _>(&spec_file);
+        let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
+        
+        gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer, dep_file.as_mut())
+    } else {
+        let repo = debcrafter::load_file::<Repository, _>(&spec_file);
+        
+        for (name, mut source) in repo.sources {
+            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer, dep_file.as_mut())
+        }
+    }
 }

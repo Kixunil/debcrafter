@@ -1,7 +1,7 @@
 use std::fmt;
 use serde_derive::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::borrow::Cow;
 
 pub mod postinst;
@@ -57,10 +57,16 @@ pub struct Package {
     pub conflicts: HashSet<String>,
 }
 
-fn load_include(dir: &Path, name: &str) -> Package {
-    let mut file = dir.join(name);
-    file.set_extension("sps");
-    Package::load(file)
+pub type FileDeps<'a> = Option<&'a mut HashSet<PathBuf>>;
+
+fn load_include<'a>(dir: &'a Path, name: &'a str, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
+    move || {
+        let mut file = dir.join(name);
+        file.set_extension("sps");
+        let package = Package::load(&file);
+        deps.as_mut().map(|deps| deps.insert(file));
+        package
+    }
 }
 
 pub fn load_file<T: for<'a> serde::Deserialize<'a>, P: AsRef<Path>>(file: P) -> T {
@@ -74,18 +80,19 @@ impl Package {
         load_file(file)
     }
 
-    pub fn load_includes<P: AsRef<Path>>(&self, dir: P) -> HashMap<String, Package> {
+    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut HashSet<PathBuf>>) -> HashMap<String, Package> {
         let mut result = HashMap::new();
         for (_, conf) in self.config() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for (pkg, _) in evars {
-                    result.entry(pkg.to_owned()).or_insert_with(|| load_include(dir.as_ref(), pkg));
+                    let mut deps = deps.as_mut().map(|deps| &mut **deps);
+                    result.entry(pkg.to_owned()).or_insert_with(load_include(dir.as_ref(), pkg, deps));
                 }
             }
         }
 
         if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
-            result.entry(extends.clone()).or_insert_with(|| load_include(dir.as_ref(), &extends));
+            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), &extends, deps));
         }
 
         result

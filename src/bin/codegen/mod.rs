@@ -173,10 +173,10 @@ pub fn get_args() -> (PathBuf, PathBuf, bool) {
     (source.into(), dest.into(), append)
 }
 
-pub fn generate<F: FnMut(&PackageInstance, LazyCreateBuilder) -> io::Result<()>>(gen_file: GenFileName, mut f: F) {
+pub fn generate<F: FnMut(&PackageInstance, LazyCreateBuilder) -> io::Result<()>>(gen_file: GenFileName, deps: debcrafter::FileDeps, mut f: F) {
     let (source, dest, append) = get_args();
     let pkg = Package::load(&source);
-    let includes = pkg.load_includes(source.parent().unwrap_or(".".as_ref()));
+    let includes = pkg.load_includes(source.parent().unwrap_or(".".as_ref()), deps);
 
     if pkg.variants.len() == 0 {
         let instance = pkg.instantiate(None, Some(&includes)).expect("Invalid variant");
