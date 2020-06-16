@@ -156,7 +156,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 
     if let Some(dep_file) = dep_file {
         (|| -> Result<(), io::Error> {
-            write!(dep_file, "{}/debcrafter.stamp:", dir.display())?;
+            write!(dep_file, "{}/debcrafter-{}.stamp:", dest.display(), name)?;
             for dep in &deps {
                 write!(dep_file, " {}", dep.display())?;
             }
