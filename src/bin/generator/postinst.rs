@@ -319,7 +319,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             writeln!(self.out, "test -r \"$orig_file\"")?;
             writeln!(self.out, "patch -o \"{}\" \"$orig_file\" \"{}\"", dest, patch)?;
             writeln!(self.out, "chown --reference=\"$orig_file\" \"{}\"", dest)?;
-            writeln!(self.out, "chgrp --reference=\"$orig_file\" \"{}\"", dest)?;
+            writeln!(self.out, "chmod --reference=\"$orig_file\" \"{}\"", dest)?;
         }
 
         Ok(())
