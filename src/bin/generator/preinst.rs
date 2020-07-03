@@ -22,7 +22,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let out = out.set_header("#!/bin/bash\n\nset -e\n\n");
     let mut out = out.finalize();
 
-    write_patches(&mut out, instance)?;
+    // This is actually a bad idea because it could leave the dependency in a corrupt state
+    // but maybe there's a reason to activate it in the future?
+    //write_patches(&mut out, instance)?;
 
     Ok(())
 }
