@@ -25,6 +25,8 @@ pub struct Source {
     #[serde(default, rename = "with")]
     pub with_components: HashSet<String>,
     pub packages: HashSet<String>,
+    #[serde(default)]
+    pub skip_debug_symbols: bool,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +70,10 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
         for service in systemd_services {
             writeln!(out, "\tdh_systemd_enable --name={}", service)?;
         }
+    }
+    if source.skip_debug_symbols {
+        writeln!(out)?;
+        writeln!(out, "override_dh_dwz:")?;
     }
     Ok(())
 }
