@@ -44,8 +44,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         write_kv_opt(&mut out, "Wants", &instance.spec.wants)?;
         write_kv_opt(&mut out, "BindsTo", &instance.spec.binds_to)?;
         write_kv_opt(&mut out, "PartOf", &instance.spec.part_of)?;
-        if let Some(after) = &instance.spec.after {
-            writeln!(out, "After={}", after)?;
+        if instance.spec.refuse_manual_start {
+            writeln!(out, "RefuseManualStart=true")?;
+        }
+        if instance.spec.refuse_manual_stop {
+            writeln!(out, "RefuseManualStop=true")?;
         }
         writeln!(out)?;
         writeln!(out, "[Service]")?;

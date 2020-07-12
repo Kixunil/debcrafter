@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use codegen::{LazyCreateBuilder};
 use debcrafter::{Package, PackageInstance};
 use serde_derive::Deserialize;
+use std::borrow::Borrow;
+use debcrafter::ServiceInstance;
 
 mod generator;
 mod codegen;
@@ -37,6 +39,12 @@ pub struct SingleSource {
     pub source: Source,
 }
 
+struct ServiceRule {
+    unit_name: String,
+    refuse_manual_start: bool,
+    refuse_manual_stop: bool,
+}
+
 static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::Result<()>)] = &[
     ("config", crate::generator::config::generate),
     ("install", crate::generator::install::generate),
@@ -51,7 +59,7 @@ static FILE_GENERATORS: &[(&str, fn(&PackageInstance, LazyCreateBuilder) -> io::
     ("triggers", crate::generator::triggers::generate),
 ];
 
-fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Result<()> where I: IntoIterator, <I as IntoIterator>::IntoIter: ExactSizeIterator, <I as IntoIterator>::Item: std::fmt::Display {
+fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Result<()> where I: IntoIterator, <I as IntoIterator>::IntoIter: ExactSizeIterator, <I as IntoIterator>::Item: Borrow<ServiceRule> {
     let systemd_services = systemd_services.into_iter();
     let mut out = fs::File::create(deb_dir.join("rules")).expect("Failed to create control file");
 
@@ -66,9 +74,18 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
 
     if systemd_services.len() > 0 {
         writeln!(out)?;
-        writeln!(out, "override_dh_systemd_enable:")?;
+        writeln!(out, "override_dh_installsystemd:")?;
         for service in systemd_services {
-            writeln!(out, "\tdh_systemd_enable --name={}", service)?;
+            let service = service.borrow();
+
+            write!(out, "\tdh_installsystemd --name={}", service.unit_name)?;
+            if service.refuse_manual_start {
+                write!(out, " --no-start")?;
+            }
+            if service.refuse_manual_stop {
+                write!(out, " --no-stop-on-upgrade --no-restart-after-upgrade")?;
+            }
+            writeln!(out)?;
         }
     }
     if source.skip_debug_symbols {
@@ -131,7 +148,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 
     // TODO: calculate dh-systemd dep instead
     gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
-    std::fs::write(deb_dir.join("compat"), "10\n").expect("Failed to write debian/compat");
+    std::fs::write(deb_dir.join("compat"), "12\n").expect("Failed to write debian/compat");
 
     let services = source.packages
         .iter()
@@ -156,7 +173,11 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
             generator::control::generate(&instance, out).expect("Failed to generate file");
             generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
 
-            instance.service_name().map(String::from)
+            instance.as_service().map(|service| ServiceRule {
+                unit_name: ServiceInstance::service_name(&service).to_owned(),
+                refuse_manual_start: service.spec.refuse_manual_start,
+                refuse_manual_stop: service.spec.refuse_manual_stop,
+            })
         })
         .collect::<Vec<_>>();
 
@@ -171,9 +192,6 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
         })().expect("Failed to write into dependency file")
     }
 
-    if services.len() > 0 {
-        source.with_components.insert("systemd".to_owned());
-    }
     gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
 }
 

@@ -576,7 +576,9 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     handler.register_alternatives(alternatives)?;
 
     if let Some(service) = instance.as_service() {
-        handler.restart_service_if_needed(&service)?;
+        if !service.spec.refuse_manual_start && !service.spec.refuse_manual_stop {
+            handler.restart_service_if_needed(&service)?;
+        }
     }
 
     handler.trigger_config_changed(instance)?;

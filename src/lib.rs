@@ -234,6 +234,10 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub wanted_by: Option<String>,
     #[serde(default)]
+    pub refuse_manual_start: bool,
+    #[serde(default)]
+    pub refuse_manual_stop: bool,
+    #[serde(default)]
     pub extra_service_config: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
