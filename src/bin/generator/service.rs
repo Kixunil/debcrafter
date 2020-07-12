@@ -30,16 +30,30 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     if let Some(instance) = instance.as_service() {
         let mut out = out.finalize();
 
-        writeln!(out, "[Unit]")?;
-        if let Some(summary) = &instance.spec.summary {
-            writeln!(out, "Description={}", summary)?;
+        fn write_kv_opt<W: Write>(mut out: W, name: &str, opt: &Option<String>) -> io::Result<()> {
+            if let Some(value) = opt {
+                writeln!(out, "{}={}", name, value)?;
+            }
+            Ok(())
         }
+
+        writeln!(out, "[Unit]")?;
+        write_kv_opt(&mut out, "Description", &instance.spec.summary)?;
+        write_kv_opt(&mut out, "After", &instance.spec.after)?;
+        write_kv_opt(&mut out, "Before", &instance.spec.before)?;
+        write_kv_opt(&mut out, "Wants", &instance.spec.wants)?;
+        write_kv_opt(&mut out, "BindsTo", &instance.spec.binds_to)?;
+        write_kv_opt(&mut out, "PartOf", &instance.spec.part_of)?;
         if let Some(after) = &instance.spec.after {
             writeln!(out, "After={}", after)?;
         }
         writeln!(out)?;
         writeln!(out, "[Service]")?;
-        writeln!(out, "Type=exec")?;
+        if let Some(service_type) = &instance.spec.service_type {
+            writeln!(out, "Type={}", service_type)?;
+        } else {
+            writeln!(out, "Type=exec")?;
+        }
         write!(out, "ExecStart={}", instance.spec.binary)?;
         let conf_dir_name = if let Some(conf_dir) = &instance.spec.conf_d {
             if conf_dir.param.ends_with('=') {
@@ -63,6 +77,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             }
         }
         writeln!(out)?;
+        write_kv_opt(&mut out, "ExecStop", &instance.spec.exec_stop)?;
 
         writeln!(out, "User={}", instance.user_name())?;
         if instance.spec.user.group {
@@ -75,7 +90,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
 
         writeln!(out)?;
         writeln!(out, "[Install]")?;
-        writeln!(out, "WantedBy=multi-user.target")?;
+        if let Some(wanted_by) = &instance.spec.wanted_by {
+            writeln!(out, "WantedBy={}", wanted_by)?;
+        } else {
+            writeln!(out, "WantedBy=multi-user.target")?;
+        }
     }
 
     Ok(())

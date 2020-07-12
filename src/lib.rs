@@ -216,7 +216,23 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub config: HashMap<String, Config>,
     #[serde(default)]
+    pub service_type: Option<String>,
+    #[serde(default)]
+    pub exec_stop: Option<String>,
+    #[serde(default)]
     pub after: Option<String>,
+    #[serde(default)]
+    pub before: Option<String>,
+    #[serde(default)]
+    pub wants: Option<String>,
+    #[serde(default)]
+    pub requires: Option<String>,
+    #[serde(default)]
+    pub binds_to: Option<String>,
+    #[serde(default)]
+    pub part_of: Option<String>,
+    #[serde(default)]
+    pub wanted_by: Option<String>,
     #[serde(default)]
     pub extra_service_config: Option<String>,
     #[serde(default)]
