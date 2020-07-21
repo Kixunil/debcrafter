@@ -41,11 +41,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let mut activated = HashSet::new();
 
     for trigger in &triggers {
-        writeln!(out, "\tdpkg-trigger {}", trigger)?;
+        writeln!(out, "\tdpkg-trigger \"`realpath \"{}\"`\"", trigger)?;
         if let Some(pos) = trigger.rfind('/') {
             let parent = &trigger[..pos];
             if parent != instance.config_sub_dir() && !triggers.contains(parent) && !activated.contains(parent) {
-                writeln!(out, "\tdpkg-trigger {}", parent)?;
+                writeln!(out, "\tdpkg-trigger \"`realpath \"{}\"`\"", parent)?;
                 activated.insert(parent);
             }
         }

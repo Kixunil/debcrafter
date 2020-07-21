@@ -523,9 +523,9 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
         if let Some(pos) = trigger.rfind('/') {
             let parent = &trigger[..pos];
             if !interested.contains(&**trigger) && !interested.contains(parent) {
-                handler.activate_trigger(trigger, true)?;
+                handler.activate_trigger(&format!("`realpath \"{}\"`", trigger), true)?;
                 if parent != abs_config_dir && !triggers.contains(parent) && !activated.contains(parent) {
-                    handler.activate_trigger(parent, true)?;
+                    handler.activate_trigger(&format!("`realpath \"{}\"`", trigger), true)?;
                     activated.insert(parent);
                 }
             }
