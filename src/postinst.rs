@@ -435,8 +435,18 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     }
                 }
 
-                for (var, var_spec) in ivars {
-                    match &var_spec.ty {
+                let ivars_iter = ivars
+                    .iter()
+                    .map(|(var, spec)| (var, &spec.ty));
+
+                let hvars_iter = hvars
+                    .iter()
+                    .map(|(var, spec)| (var, &spec.ty));
+
+                // We must not include evars as they create the dir in their package.
+
+                for (var, ty) in ivars_iter.chain(hvars_iter) {
+                    match ty {
                         VarType::Path { file_type: Some(file_type), create: Some(create) } => {
                             let owner = if create.owner == "$service" {
                                 package.service_user().expect("Attempt to use service user but the package is not a service.")
