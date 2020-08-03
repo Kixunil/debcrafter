@@ -90,7 +90,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     }
     writeln!(out, "${{misc:Depends}}")?;
 
-    write_deps(&mut out, "Suggests", instance.suggests)?;
+    write_deps(&mut out, "Suggests", instance.suggests.iter().chain(instance.extended_by))?;
     write_deps(&mut out, "Provides", instance.provides)?;
     write_deps(&mut out, "Conflicts", instance.conflicts)?;
 

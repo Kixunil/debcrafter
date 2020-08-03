@@ -10,6 +10,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let mut dirs = HashSet::new();
     let mut files_no_await = HashSet::new();
     let mut files_await = HashSet::new();
+    let mut configs_changed = HashSet::new();
 
     // A package needs triggers only if it's doing something "interesting".
     // Currently it's either being a service or having postprocess script.
@@ -34,11 +35,15 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 ConfType::Dynamic { cat_files, .. } if cat_files.len() > 0 => true,
                 _ => false,
             })
-            .is_some()
+            .is_some() || !instance.extended_by.is_empty()
     };
 
     if needs_triggers {
         let mut out = out.finalize();
+
+        for package in instance.extended_by {
+            configs_changed.insert(package);
+        }
 
         for (file, config) in instance.config() {
             match &config.conf_type {
@@ -96,6 +101,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             }
 
             writeln!(out, "interest-noawait {}", trigger)?;
+        }
+        for trigger in &configs_changed {
+            writeln!(out, "interest-noawait {}-config-changed", trigger)?;
         }
     }
     Ok(())

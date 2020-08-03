@@ -55,6 +55,8 @@ pub struct Package {
     pub suggests: HashSet<String>,
     #[serde(default)]
     pub conflicts: HashSet<String>,
+    #[serde(default)]
+    pub extended_by: HashSet<String>,
 }
 
 pub type FileDeps<'a> = Option<&'a mut HashSet<PathBuf>>;
@@ -123,6 +125,7 @@ impl Package {
             recommends: &self.recommends,
             suggests: &self.suggests,
             conflicts: &self.conflicts,
+            extended_by: &self.extended_by,
         })
     }
 }
@@ -546,6 +549,7 @@ pub struct PackageInstance<'a> {
     pub recommends: &'a HashSet<String>,
     pub suggests: &'a HashSet<String>,
     pub conflicts: &'a HashSet<String>,
+    pub extended_by: &'a HashSet<String>,
 }
 
 impl<'a> PackageInstance<'a> {
