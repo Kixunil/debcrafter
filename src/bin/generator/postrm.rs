@@ -51,6 +51,8 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
+    writeln!(out, "\tdpkg-trigger \"{}-config-changed\"", instance.name)?;
+
     if let Some(out) = out.created() {
         writeln!(out, "fi")?;
         writeln!(out)?;
