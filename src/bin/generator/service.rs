@@ -1,12 +1,11 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ConfType, Config};
+use debcrafter::{PackageInstance, ConfType, Config, Map, Set};
 use crate::codegen::{LazyCreateBuilder};
-use std::collections::{HashSet, HashMap};
 
-fn filter_configs<'a>(configs: &'a HashMap<String, Config>, conf_dir: Option<&str>) -> HashSet<&'a str> {
-    let mut result = configs.iter().map(|(k, _)| k.as_ref()).collect::<HashSet<&str>>();
+fn filter_configs<'a>(configs: &'a Map<String, Config>, conf_dir: Option<&str>) -> Set<&'a str> {
+    let mut result = configs.iter().map(|(k, _)| k.as_ref()).collect::<Set<&str>>();
     let non_zero = result.len() > 0;
-    let mut filter_dirs = conf_dir.into_iter().collect::<HashSet<_>>();
+    let mut filter_dirs = conf_dir.into_iter().collect::<Set<_>>();
     for (_, config) in configs {
         if let ConfType::Dynamic { cat_dir, cat_files, .. } = &config.conf_type {
             if let Some(dir) = cat_dir {
@@ -19,7 +18,7 @@ fn filter_configs<'a>(configs: &'a HashMap<String, Config>, conf_dir: Option<&st
         }
     }
 
-    result.retain(|item| item.rfind('/').map(|pos| !filter_dirs.contains(&item[..pos])).unwrap_or(true));
+    let result = result.into_iter().filter(|item| item.rfind('/').map(|pos| !filter_dirs.contains(&item[..pos])).unwrap_or(true)).collect::<Set<_>>();
     if result.len() == 0 && non_zero {
         eprintln!("Warning: All config files elliminated. Circular dependencies?")
     }

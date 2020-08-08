@@ -1,16 +1,15 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ConfType, FileVar};
+use debcrafter::{PackageInstance, ConfType, FileVar, Set};
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
-    use std::collections::HashSet;
     use debcrafter::PackageConfig;
     use debcrafter::postinst::Package;
 
-    let mut dirs = HashSet::new();
-    let mut files_no_await = HashSet::new();
-    let mut files_await = HashSet::new();
-    let mut configs_changed = HashSet::new();
+    let mut dirs = Set::new();
+    let mut files_no_await = Set::new();
+    let mut files_await = Set::new();
+    let mut configs_changed = Set::new();
 
     // A package needs triggers only if it's doing something "interesting".
     // Currently it's either being a service or having postprocess script.
@@ -35,7 +34,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 ConfType::Dynamic { cat_files, .. } if cat_files.len() > 0 => true,
                 _ => false,
             })
-            .is_some() || !instance.extended_by.is_empty()
+            .is_some() || !instance.extended_by.is_empty() || !instance.extra_triggers.is_empty()
     };
 
     if needs_triggers {
@@ -104,6 +103,10 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
         for trigger in &configs_changed {
             writeln!(out, "interest-noawait {}-config-changed", trigger)?;
+        }
+
+        for trigger in instance.extra_triggers {
+            writeln!(out, "interest-noawait {}", trigger)?;
         }
     }
     Ok(())

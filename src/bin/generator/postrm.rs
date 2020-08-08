@@ -1,14 +1,13 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package, GeneratedType};
+use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package, GeneratedType, Set};
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
-use std::collections::HashSet;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let out = out.set_header("#!/bin/bash\n\nif [ \"$1\" = purge ];\nthen\n");
     let mut out = out.finalize();
     let mut trigger_dir = false;
-    let mut triggers = HashSet::new();
+    let mut triggers = Set::new();
     for (file_name, conf) in instance.config() {
         if let ConfType::Dynamic { postprocess, .. } = &conf.conf_type {
             let abs_file = format!("/etc/{}/{}", instance.config_sub_dir(), file_name);
@@ -38,7 +37,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
-    let mut activated = HashSet::new();
+    let mut activated = Set::new();
 
     for trigger in &triggers {
         writeln!(out, "\tdpkg-trigger \"`realpath \"{}\"`\"", trigger)?;

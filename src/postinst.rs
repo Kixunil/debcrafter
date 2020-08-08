@@ -1,9 +1,8 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 
 #[derive(Copy, Clone)]
 pub struct Config<'a> {
@@ -233,7 +232,7 @@ impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clon
 
 impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
 
-fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P, triggers: &mut HashSet<Cow<'b, str>>, postprocess: &'b crate::PostProcess) -> Result<(), T::Error> {
+fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P, triggers: &mut Set<Cow<'b, str>>, postprocess: &'b crate::PostProcess) -> Result<(), T::Error> {
     for generated in &postprocess.generates {
         let path = match &generated.ty {
             GeneratedType::File(path) => path,
@@ -256,8 +255,8 @@ fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T
 }
 
 fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package: &P) -> Result<(), T::Error> {
-    let mut triggers = HashSet::<Cow<str>>::new();
-    let mut interested = HashSet::<String>::new();
+    let mut triggers = Set::<Cow<str>>::new();
+    let mut interested = Set::<String>::new();
     let mut needs_stopped_service = false;
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, insert_header, with_header, .. } = &config.conf_type {
@@ -527,7 +526,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
         interested.insert(format!("/etc/{}/{}", package.config_sub_dir(), conf_dir.trim_end_matches('/')));
     }
 
-    let mut activated = HashSet::new();
+    let mut activated = Set::new();
 
     for trigger in &triggers {
         if let Some(pos) = trigger.rfind('/') {

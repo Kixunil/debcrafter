@@ -1,39 +1,41 @@
 use std::fmt;
 use serde_derive::Deserialize;
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::borrow::Cow;
 
 pub mod postinst;
+
+pub type Map<K, V> = std::collections::BTreeMap<K, V>;
+pub type Set<T> = std::collections::BTreeSet<T>;
 
 fn create_true() -> bool {
     true
 }
 
 pub trait PackageConfig {
-    fn config(&self) -> &HashMap<String, Config>;
+    fn config(&self) -> &Map<String, Config>;
 }
 
 impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         (*self).config()
     }
 }
 
 impl<'a> PackageConfig for PackageInstance<'a> {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         &self.spec.config()
     }
 }
 
 impl<'a> PackageConfig for ServiceInstance<'a> {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         &self.spec.config()
     }
 }
 
 impl PackageConfig for ServicePackageSpec {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         &self.config
     }
 }
@@ -42,24 +44,26 @@ impl PackageConfig for ServicePackageSpec {
 pub struct Package {
     pub name: String,
     #[serde(default)]
-    pub variants: HashSet<String>,
+    pub variants: Set<String>,
     #[serde(flatten)]
     pub spec: PackageSpec,
     #[serde(default)]
-    pub depends: HashSet<String>,
+    pub depends: Set<String>,
     #[serde(default)]
-    pub provides: HashSet<String>,
+    pub provides: Set<String>,
     #[serde(default)]
-    pub recommends: HashSet<String>,
+    pub recommends: Set<String>,
     #[serde(default)]
-    pub suggests: HashSet<String>,
+    pub suggests: Set<String>,
     #[serde(default)]
-    pub conflicts: HashSet<String>,
+    pub conflicts: Set<String>,
     #[serde(default)]
-    pub extended_by: HashSet<String>,
+    pub extended_by: Set<String>,
+    #[serde(default)]
+    pub extra_triggers: Set<String>,
 }
 
-pub type FileDeps<'a> = Option<&'a mut HashSet<PathBuf>>;
+pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
 
 fn load_include<'a>(dir: &'a Path, name: &'a str, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
     move || {
@@ -82,8 +86,8 @@ impl Package {
         load_file(file)
     }
 
-    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut HashSet<PathBuf>>) -> HashMap<String, Package> {
-        let mut result = HashMap::new();
+    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<String, Package> {
+        let mut result = Map::new();
         for (_, conf) in self.config() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for (pkg, _) in evars {
@@ -100,7 +104,7 @@ impl Package {
         result
     }
 
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a HashMap<String, Package>>) -> Option<PackageInstance<'a>> {
+    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<String, Package>>) -> Option<PackageInstance<'a>> {
         let name = if let Some(variant) = variant {
             // Sanity check
             if !self.variants.contains(variant) {
@@ -126,12 +130,13 @@ impl Package {
             suggests: &self.suggests,
             conflicts: &self.conflicts,
             extended_by: &self.extended_by,
+            extra_triggers: &self.extra_triggers,
         })
     }
 }
 
 impl PackageConfig for Package {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         self.spec.config()
     }
 }
@@ -163,7 +168,7 @@ impl PackageSpec {
 }
 
 impl PackageConfig for PackageSpec {
-    fn config(&self) -> &HashMap<String, Config> {
+    fn config(&self) -> &Map<String, Config> {
         match self {
             PackageSpec::Base(base) => &base.config,
             PackageSpec::Service(service) => &service.config,
@@ -183,16 +188,24 @@ pub struct ExtraGroup {
 }
 
 #[derive(Deserialize)]
+pub struct TriggerCommand {
+    command: Vec<String>,
+    #[serde(rename = "await")]
+    #[serde(default)]
+    trigger_await: bool,
+}
+
+#[derive(Deserialize)]
 pub struct BasePackageSpec {
     pub architecture: String,
     #[serde(default)]
-    pub config: HashMap<String, Config>,
+    pub config: Map<String, Config>,
     #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
     pub long_doc: Option<String>,
     #[serde(default)]
-    pub databases: HashMap<String, DbConfig>,
+    pub databases: Map<String, DbConfig>,
     #[serde(default)]
     pub add_files: Vec<String>,
     #[serde(default)]
@@ -202,9 +215,9 @@ pub struct BasePackageSpec {
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
-    pub alternatives: HashMap<String, Alternative>,
+    pub alternatives: Map<String, Alternative>,
     #[serde(default)]
-    pub patch_foreign: HashMap<String, String>,
+    pub patch_foreign: Map<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -217,7 +230,7 @@ pub struct ServicePackageSpec {
     pub conf_d: Option<ConfDir>,
     pub user: UserSpec,
     #[serde(default)]
-    pub config: HashMap<String, Config>,
+    pub config: Map<String, Config>,
     #[serde(default)]
     pub service_type: Option<String>,
     #[serde(default)]
@@ -247,9 +260,9 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub long_doc: Option<String>,
     #[serde(default)]
-    pub databases: HashMap<String, DbConfig>,
+    pub databases: Map<String, DbConfig>,
     #[serde(default)]
-    pub extra_groups: HashMap<String, ExtraGroup>,
+    pub extra_groups: Map<String, ExtraGroup>,
     #[serde(default)]
     pub add_files: Vec<String>,
     #[serde(default)]
@@ -259,9 +272,9 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
-    pub alternatives: HashMap<String, Alternative>,
+    pub alternatives: Map<String, Alternative>,
     #[serde(default)]
-    pub patch_foreign: HashMap<String, String>,
+    pub patch_foreign: Map<String, String>,
 }
 
 pub enum BoolOrVecString {
@@ -317,7 +330,7 @@ pub struct ConfExtPackageSpec {
     #[serde(default)]
     pub long_doc: Option<String>,
     #[serde(default)]
-    pub config: HashMap<String, Config>,
+    pub config: Map<String, Config>,
     #[serde(default)]
     pub add_files: Vec<String>,
     #[serde(default)]
@@ -327,9 +340,9 @@ pub struct ConfExtPackageSpec {
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
-    pub alternatives: HashMap<String, Alternative>,
+    pub alternatives: Map<String, Alternative>,
     #[serde(default)]
-    pub patch_foreign: HashMap<String, String>,
+    pub patch_foreign: Map<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -371,16 +384,16 @@ pub enum ConfType {
         #[serde(default)]
         with_header: bool,
         #[serde(default)]
-        ivars: HashMap<String, InternalVar>,
+        ivars: Map<String, InternalVar>,
         #[serde(default)]
-        evars: HashMap<String, HashMap<String, ExternalVar>>,
+        evars: Map<String, Map<String, ExternalVar>>,
         #[serde(default)]
-        hvars: HashMap<String, HiddenVar>,
+        hvars: Map<String, HiddenVar>,
         #[serde(default)]
-        fvars: HashMap<String, FileVar>,
+        fvars: Map<String, FileVar>,
         cat_dir: Option<String>,
         #[serde(default)]
-        cat_files: HashSet<String>,
+        cat_files: Set<String>,
         comment: Option<String>,
         // Command to run after creating whole config file
         postprocess: Option<PostProcess>,
@@ -543,13 +556,14 @@ pub struct PackageInstance<'a> {
     pub name: Cow<'a, str>,
     pub variant: Option<&'a str>,
     pub spec: &'a PackageSpec,
-    pub includes: Option<&'a HashMap<String, Package>>,
-    pub depends: &'a HashSet<String>,
-    pub provides: &'a HashSet<String>,
-    pub recommends: &'a HashSet<String>,
-    pub suggests: &'a HashSet<String>,
-    pub conflicts: &'a HashSet<String>,
-    pub extended_by: &'a HashSet<String>,
+    pub includes: Option<&'a Map<String, Package>>,
+    pub depends: &'a Set<String>,
+    pub provides: &'a Set<String>,
+    pub recommends: &'a Set<String>,
+    pub suggests: &'a Set<String>,
+    pub conflicts: &'a Set<String>,
+    pub extended_by: &'a Set<String>,
+    pub extra_triggers: &'a Set<String>,
 }
 
 impl<'a> PackageInstance<'a> {
@@ -571,7 +585,7 @@ pub struct ServiceInstance<'a> {
     pub name: &'a Cow<'a, str>,
     pub variant: Option<&'a str>,
     pub spec: &'a ServicePackageSpec,
-    pub includes: Option<&'a HashMap<String, Package>>,
+    pub includes: Option<&'a Map<String, Package>>,
 }
 
 impl<'a> ServiceInstance<'a> {

@@ -1,12 +1,10 @@
 use std::{io, fs};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet};
 use codegen::{LazyCreateBuilder};
-use debcrafter::{Package, PackageInstance};
+use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
-use debcrafter::ServiceInstance;
 
 mod generator;
 mod codegen;
@@ -14,7 +12,7 @@ mod codegen;
 #[derive(Deserialize)]
 pub struct Repository {
     pub maintainer: String,
-    pub sources: HashMap<String, Source>,
+    pub sources: Map<String, Source>,
 }
 
 #[derive(Deserialize)]
@@ -25,8 +23,8 @@ pub struct Source {
     #[serde(default)]
     pub build_depends: Vec<String>,
     #[serde(default, rename = "with")]
-    pub with_components: HashSet<String>,
-    pub packages: HashSet<String>,
+    pub with_components: Set<String>,
+    pub packages: Set<String>,
     #[serde(default)]
     pub skip_debug_symbols: bool,
 }
@@ -143,7 +141,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
     copy_changelog(&deb_dir, source_dir, name);
 
-    let mut deps = HashSet::new();
+    let mut deps = Set::new();
     let mut deps_opt = dep_file.as_mut().map(|_| { &mut deps });
 
     // TODO: calculate dh-systemd dep instead

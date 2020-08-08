@@ -1,7 +1,6 @@
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::{PackageInstance, PackageSpec, ConfType};
+use debcrafter::{PackageInstance, PackageSpec, ConfType, Set};
 use std::io::{self, Write};
-use std::collections::HashSet;
 
 fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
     use std::borrow::Cow;
@@ -56,7 +55,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .map(Into::into)
         .chain(extra.into_iter().flatten())
         // This avoids duplicates
-        .collect::<HashSet<Cow<'_, _>>>()
+        .collect::<Set<Cow<'_, _>>>()
 }
 
 fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: io::Write, I: IntoIterator, <I as IntoIterator>::Item: std::fmt::Display {

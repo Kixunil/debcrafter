@@ -2,7 +2,6 @@ use std::io::{self, Write};
 use debcrafter::{PackageInstance, PackageSpec, ConfType, postinst::Package, GeneratedType};
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
-use std::collections::HashSet;
 
 fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
     let alternatives = match &instance.spec {
