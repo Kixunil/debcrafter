@@ -24,6 +24,8 @@ pub struct Source {
     pub build_depends: Vec<String>,
     #[serde(default, rename = "with")]
     pub with_components: Set<String>,
+    #[serde(default)]
+    pub buildsystem: Option<String>,
     pub packages: Set<String>,
     #[serde(default)]
     pub skip_debug_symbols: bool,
@@ -67,6 +69,9 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
     write!(out, "\tdh $@")?;
     for component in &source.with_components {
         write!(out, " --with {}", component)?;
+    }
+    if let Some(buildsystem) = &source.buildsystem {
+        write!(out, " --buildsystem {}", buildsystem)?;
     }
     writeln!(out)?;
 
