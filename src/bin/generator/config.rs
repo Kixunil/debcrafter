@@ -10,6 +10,22 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
 ";
     let mut out = out.set_header(header).finalize();
 
+    if !instance.migrations.is_empty() {
+        for (version, migration) in instance.migrations {
+            writeln!(out, "if dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
+            writeln!(out, "then")?;
+            for line in migration.config.trim().split('\n') {
+                if line.is_empty() {
+                    writeln!(out);
+                } else {
+                    writeln!(out, "\t{}", line)?;
+                }
+            }
+            writeln!(out, "fi")?;
+            writeln!(out)?;
+        }
+    }
+
     //TODO: data validation
     for (_, config) in instance.config() {
         match &config.conf_type {

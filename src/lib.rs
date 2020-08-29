@@ -2,6 +2,7 @@ use std::fmt;
 use serde_derive::Deserialize;
 use std::path::{Path, PathBuf};
 use std::borrow::Cow;
+use std::convert::TryFrom;
 
 pub mod postinst;
 
@@ -61,6 +62,8 @@ pub struct Package {
     pub extended_by: Set<String>,
     #[serde(default)]
     pub extra_triggers: Set<String>,
+    #[serde(default)]
+    pub migrations: Map<MigrationVersion, Migration>,
 }
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
@@ -131,6 +134,7 @@ impl Package {
             conflicts: &self.conflicts,
             extended_by: &self.extended_by,
             extra_triggers: &self.extra_triggers,
+            migrations: &self.migrations,
         })
     }
 }
@@ -176,6 +180,101 @@ impl PackageConfig for PackageSpec {
         }
     }
 }
+
+#[derive(Deserialize)]
+pub struct Migration {
+    pub config: String
+}
+
+#[derive(Clone, Eq, PartialEq, Deserialize)]
+#[serde(try_from = "String")]
+pub struct MigrationVersion(String);
+
+impl MigrationVersion {
+    pub fn version(&self) -> &str {
+        &self.0[3..]
+    }
+}
+
+impl std::cmp::Ord for MigrationVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self == other {
+            return std::cmp::Ordering::Equal;
+        }
+        if std::process::Command::new("dpkg")
+            .args(&["--compare-versions", self.version(), "lt", &other.version()])
+            .spawn()
+            .expect("Failed to compare versions")
+            .wait()
+            .expect("Failed to compare versions")
+            .success() {
+                std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    }
+}
+
+impl std::cmp::PartialOrd for MigrationVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl TryFrom<String> for MigrationVersion {
+    type Error = MigrationVersionError;
+
+    fn try_from(string: String) -> Result<Self, Self::Error> {
+        if !string.starts_with("<< ") {
+            return Err(MigrationVersionErrorInner::BadPrefix(string).into());
+        }
+        let output = std::process::Command::new("dpkg")
+            .args(&["--validate-version", &string[3..]])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to compare versions")
+            .wait_with_output()
+            .expect("Failed to compare versions");
+        if output.status.success() {
+            Ok(MigrationVersion(string))
+        } else {
+            let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
+            Err(MigrationVersionErrorInner::Invalid(err_message).into())
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MigrationVersionErrorInner {
+    BadPrefix(String),
+    Invalid(String),
+}
+
+#[derive(Debug)]
+pub struct MigrationVersionError {
+    error: MigrationVersionErrorInner
+}
+
+impl From<MigrationVersionErrorInner> for MigrationVersionError {
+    fn from(value: MigrationVersionErrorInner) -> Self {
+        MigrationVersionError {
+            error: value,
+        }
+    }
+}
+
+impl fmt::Display for MigrationVersionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // strip_prefix method is in str since 1.45, we support 1.34
+        let strip_prefix = "dpkg: warning: ";
+        match &self.error {
+            MigrationVersionErrorInner::BadPrefix(string) => write!(f, "invalid migration version '{}', the version must start with '<< '", string),
+            MigrationVersionErrorInner::Invalid(string) if string.starts_with(strip_prefix) => write!(f, "{}", &string[strip_prefix.len()..]),
+            MigrationVersionErrorInner::Invalid(string) => write!(f, "{}", string),
+        }
+    }
+}
+
 
 #[derive(Deserialize)]
 pub struct DbConfig {
@@ -564,6 +663,7 @@ pub struct PackageInstance<'a> {
     pub conflicts: &'a Set<String>,
     pub extended_by: &'a Set<String>,
     pub extra_triggers: &'a Set<String>,
+    pub migrations: &'a Map<MigrationVersion, Migration>,
 }
 
 impl<'a> PackageInstance<'a> {
