@@ -11,19 +11,22 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let mut out = out.set_header(header).finalize();
 
     if !instance.migrations.is_empty() {
+        writeln!(out, "if [ \"$1\" = \"configure\" ] && dpkg --validate-version \"$2\" &>/dev/null;")?;
+        writeln!(out, "then")?;
         for (version, migration) in instance.migrations {
-            writeln!(out, "if dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
-            writeln!(out, "then")?;
+            writeln!(out, "\tif dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
+            writeln!(out, "\tthen")?;
             for line in migration.config.trim().split('\n') {
                 if line.is_empty() {
                     writeln!(out);
                 } else {
-                    writeln!(out, "\t{}", line)?;
+                    writeln!(out, "\t\t{}", line)?;
                 }
             }
-            writeln!(out, "fi")?;
+            writeln!(out, "\tfi")?;
             writeln!(out)?;
         }
+        writeln!(out, "fi")?;
     }
 
     //TODO: data validation
