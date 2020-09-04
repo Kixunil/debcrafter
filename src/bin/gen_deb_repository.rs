@@ -26,6 +26,8 @@ pub struct Source {
     pub with_components: Set<String>,
     #[serde(default)]
     pub buildsystem: Option<String>,
+    #[serde(default)]
+    pub autoconf_params: Vec<String>,
     pub packages: Set<String>,
     #[serde(default)]
     pub skip_debug_symbols: bool,
@@ -90,6 +92,15 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
             }
             writeln!(out)?;
         }
+    }
+    if !source.autoconf_params.is_empty() {
+        writeln!(out)?;
+        writeln!(out, "override_dh_auto_configure:")?;
+        write!(out, "\tdh_auto_configure --")?;
+        for param in &source.autoconf_params {
+            write!(out, " {}", param)?;
+        }
+        writeln!(out)?;
     }
     if source.skip_debug_symbols {
         writeln!(out)?;
