@@ -32,6 +32,7 @@ pub trait HandlePostinst: Sized {
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn include_fvar<'a, I>(&mut self, config: &Config, var: &FileVar, structure: I, subdir: &str) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
+    fn reload_apparmor(&mut self) -> Result<(), Self::Error>;
     fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn restart_service_if_needed(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error>;
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
@@ -573,6 +574,11 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     };
 
     handler.patch_files(&instance.name, patches)?;
+
+    let apparmor_needs_reload = patches.keys().any(|file| file.starts_with("/etc/apparmor.d/"));
+    if apparmor_needs_reload {
+        handler.reload_apparmor()?;
+    }
 
     handle_config(&mut handler, instance)?;
 

@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageSpec, ConfType, postinst::Package, GeneratedType};
+use debcrafter::{PackageInstance, PackageSpec, ConfType, postinst::Package, GeneratedType, Set};
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
 
@@ -41,6 +41,14 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
         writeln!(out, "then")?;
         writeln!(out, "\trm -f \"{}\"", dest)?;
         writeln!(out, "\tdpkg-divert --remove --rename \"{}\"", dest)?;
+        writeln!(out, "fi")?;
+    }
+
+    let apparmor_needs_reload = patches.keys().any(|file| file.starts_with("/etc/apparmor.d/"));
+    if apparmor_needs_reload {
+        writeln!(out, "if aa-enabled &> /dev/null;")?;
+        writeln!(out, "then")?;
+        writeln!(out, "\tsystemctl reload apparmor")?;
         writeln!(out, "fi")?;
     }
 

@@ -325,6 +325,15 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
+    fn reload_apparmor(&mut self) -> Result<(), Self::Error> {
+        writeln!(self.out, "if aa-enabled &> /dev/null;")?;
+        writeln!(self.out, "then")?;
+        writeln!(self.out, "\tsystemctl reload apparmor")?;
+        writeln!(self.out, "fi")?;
+
+        Ok(())
+    }
+
     fn stop_service(&mut self, instance: &ServiceInstance) -> Result<(), Self::Error> {
         writeln!(self.out, "systemctl is-active {} && service_was_running=1 || service_was_running = 0", instance.service_name())?;
         writeln!(self.out, "systemctl stop {}", instance.service_name())
