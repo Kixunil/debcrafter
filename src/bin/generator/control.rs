@@ -45,6 +45,17 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
             (None, &confext.config, None)
         },
     };
+    let has_patches = !match &instance.spec {
+        PackageSpec::Base(base) => &base.patch_foreign,
+        PackageSpec::Service(service) => &service.patch_foreign,
+        PackageSpec::ConfExt(confext) => &confext.patch_foreign,
+    }.is_empty();
+
+    let patch_deps = if has_patches {
+        Some("patch".into())
+    } else {
+        None
+    };
     config
         .iter()
         .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type { Some(evars) } else { None })
@@ -54,6 +65,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .chain(instance.depends.iter().map(AsRef::as_ref))
         .map(Into::into)
         .chain(extra.into_iter().flatten())
+        .chain(patch_deps)
         // This avoids duplicates
         .collect::<Set<Cow<'_, _>>>()
 }
