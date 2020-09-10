@@ -9,8 +9,8 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
     const DELIMITER: &str = " | ";
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
-    let (main_dep, config, extra) = match &instance.spec {
-        PackageSpec::Base(base) => (None, &base.config, None),
+    let (main_dep, config, extra, is_service) = match &instance.spec {
+        PackageSpec::Base(base) => (None, &base.config, None, false),
         PackageSpec::Service(service) => {
             let extra = if service.databases.len() > 0 {
                 let mut databases = String::new();
@@ -37,12 +37,12 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
             } else {
                 None
             };
-            (Some(&service.bin_package), &service.config, extra)
+            (Some(&service.bin_package), &service.config, extra, true)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(&confext.extends), &confext.config, None)
+            (Some(&confext.extends), &confext.config, None, false)
         } else {
-            (None, &confext.config, None)
+            (None, &confext.config, None, false)
         },
     };
     let has_patches = !match &instance.spec {
@@ -51,11 +51,15 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         PackageSpec::ConfExt(confext) => &confext.patch_foreign,
     }.is_empty();
 
-    let patch_deps = if has_patches {
-        Some("patch".into())
+    let cond_to_opt = |present, dependency: &'static str| if present {
+        Some(dependency.into())
     } else {
         None
     };
+
+    let patch_deps = cond_to_opt(has_patches, "patch");
+    let systemd_deps = cond_to_opt(is_service, "procps");
+
     config
         .iter()
         .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type { Some(evars) } else { None })
@@ -66,6 +70,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .map(Into::into)
         .chain(extra.into_iter().flatten())
         .chain(patch_deps)
+        .chain(systemd_deps)
         // This avoids duplicates
         .collect::<Set<Cow<'_, _>>>()
 }
