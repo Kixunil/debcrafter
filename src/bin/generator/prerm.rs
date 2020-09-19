@@ -46,7 +46,7 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
 
     let apparmor_needs_reload = patches.keys().any(|file| file.starts_with("/etc/apparmor.d/"));
     if apparmor_needs_reload {
-        writeln!(out, "if aa-enabled &> /dev/null;")?;
+        writeln!(out, "if aa-enabled &> /dev/null && systemctl is-active apparmor;")?;
         writeln!(out, "then")?;
         writeln!(out, "\tsystemctl reload apparmor")?;
         writeln!(out, "fi")?;

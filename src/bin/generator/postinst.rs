@@ -326,7 +326,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 
     fn reload_apparmor(&mut self) -> Result<(), Self::Error> {
-        writeln!(self.out, "if aa-enabled &> /dev/null;")?;
+        writeln!(self.out, "if aa-enabled &> /dev/null && systemctl is-active apparmor;")?;
         writeln!(self.out, "then")?;
         writeln!(self.out, "\tsystemctl reload apparmor")?;
         writeln!(self.out, "fi")?;
