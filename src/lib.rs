@@ -469,6 +469,8 @@ pub struct CreateUser {
 pub struct Config {
     #[serde(default)]
     pub public: bool,
+    #[serde(default)]
+    pub external: bool,
     #[serde(flatten)]
     pub conf_type: ConfType,
 }

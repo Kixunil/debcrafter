@@ -3,7 +3,7 @@ use debcrafter::{PackageInstance, ConfType, Config, Map, Set};
 use crate::codegen::{LazyCreateBuilder};
 
 fn filter_configs<'a>(configs: &'a Map<String, Config>, conf_dir: Option<&str>) -> Set<&'a str> {
-    let mut result = configs.iter().map(|(k, _)| k.as_ref()).collect::<Set<&str>>();
+    let mut result = configs.iter().filter(|(_, config)| !config.external).map(|(k, _)| k.as_ref()).collect::<Set<&str>>();
     let non_zero = result.len() > 0;
     let mut filter_dirs = conf_dir.into_iter().collect::<Set<_>>();
     for (_, config) in configs {
