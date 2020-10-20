@@ -31,6 +31,8 @@ pub struct Source {
     pub packages: Set<String>,
     #[serde(default)]
     pub skip_debug_symbols: bool,
+    #[serde(default)]
+    pub skip_strip: bool,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +107,10 @@ fn gen_rules<I>(deb_dir: &Path, source: &Source, systemd_services: I) -> io::Res
     if source.skip_debug_symbols {
         writeln!(out)?;
         writeln!(out, "override_dh_dwz:")?;
+    }
+    if source.skip_strip {
+        writeln!(out)?;
+        writeln!(out, "override_dh_strip:")?;
     }
     Ok(())
 }
