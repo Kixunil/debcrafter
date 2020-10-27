@@ -5,6 +5,7 @@ use codegen::{LazyCreateBuilder};
 use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
+use std::convert::TryInto;
 
 mod generator;
 mod codegen;
@@ -17,8 +18,6 @@ pub struct Repository {
 
 #[derive(Deserialize)]
 pub struct Source {
-    // TODO: enum with validation instead?
-    pub version: String,
     pub section: String,
     #[serde(default)]
     pub build_depends: Vec<String>,
@@ -132,15 +131,13 @@ fn gen_control(deb_dir: &Path, name: &str, source: &Source, maintainer: &str, ne
     writeln!(out)
 }
 
-fn copy_changelog(deb_dir: &Path, source_dir: &Path, name: &str) {
-    let mut source = source_dir.join(name);
-    source.set_extension("changelog");
+fn copy_changelog(deb_dir: &Path, source: &Path) {
     let dest = deb_dir.join("changelog");
 
     match fs::copy(&source, &dest) {
         Ok(_) => (),
         Err(ref err) if err.kind() == std::io::ErrorKind::NotFound => (),
-        Err(err) => panic!("Failed to copy changelog of package {} from {} to {}: {}", name, source.display(), dest.display(), err),
+        Err(err) => panic!("Failed to copy changelog of from {} to {}: {}", source.display(), dest.display(), err),
     }
 }
 
@@ -157,11 +154,38 @@ fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: boo
     LazyCreateBuilder::new(file_name, append)
 }
 
+fn changelog_parse_version(changelog_path: &Path) -> String {
+    let output = std::process::Command::new("dpkg-parsechangelog")
+        .arg("-l")
+        .arg(changelog_path)
+        .args(&["-S", "Version"])
+        .output()
+        .expect("dpkg-parsechangelog failed");
+    if !output.status.success() {
+        panic!("dpkg-parsechangelog failed with status {}", output.status);
+    }
+
+    let mut version = String::from_utf8(output.stdout).expect("dpkg-parsechangelog output is not UTF-8");
+    if version.ends_with('\n') {
+        version.pop();
+    }
+
+    version
+}
+
+fn get_upstream_version(version: &str) -> &str {
+    version.rfind('-').map(|pos| &version[..pos]).unwrap_or(version)
+}
+
 fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str, mut dep_file: Option<&mut fs::File>) {
-    let dir = dest.join(format!("{}-{}", name, source.version));
+    let mut changelog_path = source_dir.join(name);
+    changelog_path.set_extension("changelog");
+    let version = changelog_parse_version(&changelog_path);
+    let upstream_version = get_upstream_version(&version);
+    let dir = dest.join(format!("{}-{}", name, upstream_version));
     let deb_dir = dir.join("debian");
     fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
-    copy_changelog(&deb_dir, source_dir, name);
+    copy_changelog(&deb_dir, &changelog_path);
 
     let mut deps = Set::new();
     let mut deps_opt = dep_file.as_mut().map(|_| { &mut deps });
