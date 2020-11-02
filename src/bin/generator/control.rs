@@ -2,15 +2,15 @@ use crate::codegen::{LazyCreateBuilder};
 use debcrafter::{PackageInstance, PackageSpec, ConfType, Set};
 use std::io::{self, Write};
 
-fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
+fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &str) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
     use std::borrow::Cow;
 
     const PREFIX: &str = "dbconfig-";
     const DELIMITER: &str = " | ";
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
-    let (main_dep, config, extra, is_service) = match &instance.spec {
-        PackageSpec::Base(base) => (None, &base.config, None, false),
+    let (main_dep, config, extra, is_service, patch) = match &instance.spec {
+        PackageSpec::Base(base) => (None, &base.config, None, false, None),
         PackageSpec::Service(service) => {
             let extra = if service.databases.len() > 0 {
                 let mut databases = String::new();
@@ -37,12 +37,12 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
             } else {
                 None
             };
-            (Some(&service.bin_package), &service.config, extra, true)
+            (Some(&service.bin_package), &service.config, extra, true, service.min_patch.as_ref())
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(&confext.extends), &confext.config, None, false)
+            (Some(&confext.extends), &confext.config, None, false, confext.min_patch.as_ref())
         } else {
-            (None, &confext.config, None, false)
+            (None, &confext.config, None, false, None)
         },
     };
     let has_patches = !match &instance.spec {
@@ -65,9 +65,9 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance) -> impl 'a + IntoIt
         .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type { Some(evars) } else { None })
         .flatten()
         .map(|(pkg, _)| pkg.as_str())
-        .chain(main_dep.map(String::as_str))
         .chain(instance.depends.iter().map(AsRef::as_ref))
         .map(Into::into)
+        .chain(main_dep.map(|main_dep| Cow::Owned(patch.map(|patch| format!("{} (>= {}-{})", main_dep, upstream_version, patch)).unwrap_or_else(|| format!("{} (>= {})", main_dep, upstream_version)))))
         .chain(extra.into_iter().flatten())
         .chain(patch_deps)
         .chain(systemd_deps)
@@ -87,7 +87,7 @@ fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: 
     Ok(())
 }
 
-pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
+pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str) -> io::Result<()> {
     use debcrafter::BoolOrVecString;
 
     let mut out = out.finalize();
@@ -101,7 +101,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     };
     writeln!(out, "Architecture: {}", architecture)?;
     write!(out, "Depends: ")?;
-    for dep in calculate_dependencies(instance) {
+    for dep in calculate_dependencies(instance, upstream_version) {
         write!(out, "{},\n         ", dep)?;
     }
     writeln!(out, "${{misc:Depends}}")?;

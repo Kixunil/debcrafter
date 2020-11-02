@@ -214,7 +214,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
             }
 
             let out = create_lazy_builder(&deb_dir, "control", "", true);
-            generator::control::generate(&instance, out).expect("Failed to generate file");
+            generator::control::generate(&instance, out, &upstream_version).expect("Failed to generate file");
             generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
 
             instance.as_service().map(|service| ServiceRule {

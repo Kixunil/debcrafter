@@ -322,6 +322,7 @@ pub struct BasePackageSpec {
 #[derive(Deserialize)]
 pub struct ServicePackageSpec {
     pub bin_package: String,
+    pub min_patch: Option<String>,
     pub binary: String,
     #[serde(default)]
     pub conf_param: Option<String>,
@@ -422,6 +423,7 @@ pub struct ConfExtPackageSpec {
     pub replaces: BoolOrVecString,
     #[serde(default)]
     pub depends_on_extended: bool,
+    pub min_patch: Option<String>,
     #[serde(default)]
     pub external: bool,
     #[serde(default)]
