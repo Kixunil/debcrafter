@@ -225,7 +225,7 @@ impl<'a, I> Ord for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
 impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
     fn eq(&self, other: &WriteVar<'a, I>) -> bool {
         let i0 = self.structure.clone();
-        let i1 = self.structure.clone();
+        let i1 = other.structure.clone();
 
         i0.cmp(i1) == Ordering::Equal
     }
@@ -279,7 +279,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     handler.write_comment(&config_ctx, comment)?;
                 }
 
-                for (var, var_spec) in ivars {
+                for var in ivars.keys() {
                     handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
                 }
 
@@ -373,6 +373,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 write_vars.sort_unstable();
 
                 static STUPID_HACK: Option<Vec<String>> = None;
+                #[allow(unused_assignments)]
                 let mut previous = Some(compute_structure("", &STUPID_HACK));
                 previous = None;
                 for var in write_vars {
@@ -514,7 +515,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
 
 
     if needs_stopped_service {
-        for (conf_name, config) in package.config() {
+        for config in package.config().values() {
             if let ConfType::Dynamic { postprocess: Some(postprocess @ crate::PostProcess { stop_service: true, .. }), .. } = &config.conf_type {
                 handle_postprocess(handler, package, &mut triggers, postprocess)?;
             }

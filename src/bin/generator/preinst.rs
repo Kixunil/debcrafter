@@ -1,9 +1,11 @@
-use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageSpec, ConfType, postinst::Package, GeneratedType};
+use std::io;
+use debcrafter::PackageInstance;
 use crate::codegen::{LazyCreateBuilder};
-use std::borrow::Cow;
 
+/*
 fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
+    use debcrafter::PackageSpec;
+
     let patches = match &instance.spec {
         PackageSpec::Service(spec) => &spec.patch_foreign,
         PackageSpec::ConfExt(spec) => &spec.patch_foreign,
@@ -16,10 +18,11 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
 
     Ok(())
 }
+*/
 
-pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
-    let out = out.set_header("#!/bin/bash\n\nset -e\n\n");
-    let mut out = out.finalize();
+pub fn generate(_instance: &PackageInstance, _out: LazyCreateBuilder) -> io::Result<()> {
+    //let out = out.set_header("#!/bin/bash\n\nset -e\n\n");
+    //let mut out = out.finalize();
 
     // This is actually a bad idea because it could leave the dependency in a corrupt state
     // but maybe there's a reason to activate it in the future?

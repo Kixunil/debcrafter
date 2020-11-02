@@ -5,7 +5,6 @@ use codegen::{LazyCreateBuilder};
 use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
-use std::convert::TryInto;
 
 mod generator;
 mod codegen;

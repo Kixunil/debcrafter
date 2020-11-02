@@ -128,16 +128,16 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
-    fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error> {
+    fn fetch_var(&mut self, _config: &Config, package: &str, name: &str) -> Result<(), Self::Error> {
         write_fetch_var(&mut self.out, package, name)
     }
 
-    fn generate_const_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error> {
+    fn generate_const_var(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, val: &str) -> Result<(), Self::Error> {
         writeln!(self.out, "RET=\"{}\"", val)?;
         writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package, name)
     }
 
-    fn generate_var_using_script(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error> {
+    fn generate_var_using_script(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, script: &str) -> Result<(), Self::Error> {
         writeln!(self.out, "RET=\"$({})\"", script)?;
         writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package, name)
     }
@@ -160,7 +160,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
-    fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error> {
+    fn sub_object_end(&mut self, config: &Config, _name: &str) -> Result<(), Self::Error> {
         match &config.format {
             ConfFormat::Plain => panic!("Plain format doesn't support structured configuration"),
             ConfFormat::Toml => unimplemented!("Structured configuration not implemented for toml"),
@@ -176,7 +176,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
-    fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, mut structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str> {
+    fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: IntoIterator<Item=&'a str> {
         let mut out_var = name;
         for var in structure {
             out_var = var;

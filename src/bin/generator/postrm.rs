@@ -6,7 +6,6 @@ use std::borrow::Cow;
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let out = out.set_header("#!/bin/bash\n\nif [ \"$1\" = purge ];\nthen\n");
     let mut out = out.finalize();
-    let mut trigger_dir = false;
     let mut triggers = Set::new();
     for (file_name, conf) in instance.config() {
         if let ConfType::Dynamic { postprocess, .. } = &conf.conf_type {

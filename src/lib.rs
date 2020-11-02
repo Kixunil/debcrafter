@@ -94,7 +94,7 @@ impl Package {
         for (_, conf) in self.config() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for (pkg, _) in evars {
-                    let mut deps = deps.as_mut().map(|deps| &mut **deps);
+                    let deps = deps.as_mut().map(|deps| &mut **deps);
                     result.entry(pkg.to_owned()).or_insert_with(load_include(dir.as_ref(), pkg, deps));
                 }
             }
@@ -284,14 +284,6 @@ pub struct DbConfig {
 #[derive(Deserialize)]
 pub struct ExtraGroup {
     pub create: bool,
-}
-
-#[derive(Deserialize)]
-pub struct TriggerCommand {
-    command: Vec<String>,
-    #[serde(rename = "await")]
-    #[serde(default)]
-    trigger_await: bool,
 }
 
 #[derive(Deserialize)]

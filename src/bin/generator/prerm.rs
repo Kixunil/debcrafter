@@ -1,7 +1,6 @@
-use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageSpec, ConfType, postinst::Package, GeneratedType, Set};
+use std::io;
+use debcrafter::{PackageInstance, PackageSpec};
 use crate::codegen::{LazyCreateBuilder};
-use std::borrow::Cow;
 
 fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
     let alternatives = match &instance.spec {

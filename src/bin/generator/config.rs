@@ -18,7 +18,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             writeln!(out, "\tthen")?;
             for line in migration.config.trim().split('\n') {
                 if line.is_empty() {
-                    writeln!(out);
+                    writeln!(out)?;
                 } else {
                     writeln!(out, "\t\t{}", line)?;
                 }
