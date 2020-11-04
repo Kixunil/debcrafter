@@ -96,6 +96,7 @@ impl<H: WriteHeader> LazyCreateState<H> {
                 let file = std::fs::OpenOptions::new()
                     .create(true)
                     .write(true)
+                    .truncate(!*append)
                     .append(*append)
                     .open(path)?;
 
