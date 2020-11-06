@@ -9,8 +9,8 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
     const DELIMITER: &str = " | ";
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
-    let (main_dep, config, extra, is_service, patch) = match &instance.spec {
-        PackageSpec::Base(base) => (None, &base.config, None, false, None),
+    let (main_dep, config, extra, is_service, patch, external) = match &instance.spec {
+        PackageSpec::Base(base) => (None, &base.config, None, false, None, false),
         PackageSpec::Service(service) => {
             let extra = if service.databases.len() > 0 {
                 let mut databases = String::new();
@@ -37,12 +37,12 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
             } else {
                 None
             };
-            (Some(&service.bin_package), &service.config, extra, true, service.min_patch.as_ref())
+            (Some(&service.bin_package), &service.config, extra, true, service.min_patch.as_ref(), false)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(&confext.extends), &confext.config, None, false, confext.min_patch.as_ref())
+            (Some(&confext.extends), &confext.config, None, false, confext.min_patch.as_ref(), confext.external)
         } else {
-            (None, &confext.config, None, false, None)
+            (None, &confext.config, None, false, None, confext.external)
         },
     };
     let has_patches = !match &instance.spec {
@@ -67,7 +67,11 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         .map(|(pkg, _)| pkg.as_str())
         .chain(instance.depends.iter().map(AsRef::as_ref))
         .map(Into::into)
-        .chain(main_dep.map(|main_dep| Cow::Owned(patch.map(|patch| format!("{} (>= {}-{})", main_dep, upstream_version, patch)).unwrap_or_else(|| format!("{} (>= {})", main_dep, upstream_version)))))
+        .chain(main_dep.map(|main_dep| if external {
+            Cow::Borrowed(&**main_dep)
+        } else {
+            Cow::Owned(patch.map(|patch| format!("{} (>= {}-{})", main_dep, upstream_version, patch)).unwrap_or_else(|| format!("{} (>= {})", main_dep, upstream_version)))
+        }))
         .chain(extra.into_iter().flatten())
         .chain(patch_deps)
         .chain(systemd_deps)
