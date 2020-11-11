@@ -142,6 +142,21 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package, name)
     }
 
+    fn generate_var_using_template(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, template: &str) -> Result<(), Self::Error> {
+        use debcrafter::template::Component;
+
+        write!(self.out, "RET=\"")?;
+        for component in debcrafter::template::parse(template) {
+            match component {
+                Component::Constant(val) => write!(self.out, "{}", val)?,
+                Component::Variable(var) if var.starts_with('/') => write!(self.out, "${{CONFIG[{}{}]}}", package, var)?,
+                Component::Variable(var) => write!(self.out, "${{CONFIG[{}]}}", var)?,
+            }
+        }
+        writeln!(self.out, "\"")?;
+        writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package, name)
+    }
+
     fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error> {
         match config.format {
             ConfFormat::Plain => panic!("Plain format doesn't support structured configuration"),

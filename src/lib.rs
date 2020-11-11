@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 
 pub mod postinst;
+pub mod template;
 
 pub type Map<K, V> = std::collections::BTreeMap<K, V>;
 pub type Set<T> = std::collections::BTreeSet<T>;
@@ -596,6 +597,7 @@ pub struct HiddenVar {
 pub enum HiddenVarVal {
     Constant(String),
     Script(String),
+    Template(String),
 }
 
 #[derive(Deserialize, Clone, Debug)]

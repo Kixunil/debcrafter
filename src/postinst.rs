@@ -28,6 +28,7 @@ pub trait HandlePostinst: Sized {
     fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
     fn generate_const_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error>;
     fn generate_var_using_script(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error>;
+    fn generate_var_using_template(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, template: &str) -> Result<(), Self::Error>;
     fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
@@ -294,6 +295,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     match &var_spec.val {
                         HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
                         HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
+                        HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, template)?,
                     }
                 }
 
@@ -314,7 +316,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 }
 
                 for (pkg_name, vars) in evars {
-                    let pkg = package.get_include(pkg_name).expect("Package not found");
+                    let pkg = package.get_include(pkg_name).ok_or(pkg_name).expect("Package not found");
 
                     for (var, var_spec) in vars {
                         if var_spec.store {
@@ -344,6 +346,36 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 }
 
                 for (var, var_spec) in hvars {
+                    if let HiddenVarVal::Template(template) = &var_spec.val {
+                        for var in crate::template::parse(template).vars() {
+                            let pos = var.find('/').expect("Variable missing slash");
+                            let (pkg_name, var_name) = var.split_at(pos);
+                            let var_name = &var_name[1..];
+
+                            if pkg_name.is_empty() {
+                                package
+                                    .config()
+                                    .iter()
+                                    .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                        ivars.get(var_name)
+                                    } else {
+                                        None
+                                    })
+                                    .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
+                            } else {
+                                package
+                                    .config()
+                                    .iter()
+                                    .find_map(|(_, conf)| if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
+                                        evars.get(pkg_name).and_then(|pkg| pkg.get(var_name))
+                                    } else {
+                                        None
+                                    })
+                                    .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, pkg_name));
+                            }
+                        }
+                    }
+
                     if var_spec.store {
                         write_vars.push(WriteVar {
                             structure: compute_structure(&var, &var_spec.structure),
