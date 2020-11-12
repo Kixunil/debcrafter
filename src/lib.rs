@@ -73,21 +73,45 @@ fn load_include<'a>(dir: &'a Path, name: &'a str, mut deps: FileDeps<'a>) -> imp
     move || {
         let mut file = dir.join(name);
         file.set_extension("sps");
-        let package = Package::load(&file);
+        let package = Package::load(&file).expect("Failed to load include");
         deps.as_mut().map(|deps| deps.insert(file));
         package
     }
 }
 
-pub fn load_file<T: for<'a> serde::Deserialize<'a>, P: AsRef<Path>>(file: P) -> T {
+#[derive(Debug, thiserror::Error)]
+enum LoadTomlErrorSource {
+    #[error("Failed to read")]
+    Read(#[from] std::io::Error),
+    #[error("Failed to parse")]
+    Parse(#[from] toml::de::Error)
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to load Toml file {path}")]
+pub struct LoadTomlError {
+    path: PathBuf,
+    inner: LoadTomlErrorSource,
+}
+
+impl LoadTomlError {
+    fn with_path<E: Into<LoadTomlErrorSource>, P: Into<PathBuf>>(path: P) -> impl FnOnce(E) -> Self {
+        |error| LoadTomlError {
+            path: path.into(),
+            inner: error.into(),
+        }
+    }
+}
+
+pub fn load_toml<T: for<'a> serde::Deserialize<'a>, P: AsRef<Path> + Into<PathBuf>>(file: P) -> Result<T, LoadTomlError> {
     let file = file.as_ref();
-    let spec = std::fs::read(file).unwrap_or_else(|err| panic!("Failed to read {}: {}", file.display(), err));
-    toml::from_slice(&spec).unwrap_or_else(|err| panic!("Failed to parse {}: {}", file.display(), err))
+    let spec = std::fs::read(&file).map_err(LoadTomlError::with_path(file))?;
+    toml::from_slice(&spec).map_err(LoadTomlError::with_path(file))
 }
 
 impl Package {
-    pub fn load<P: AsRef<Path>>(file: P) -> Self {
-        load_file(file)
+    pub fn load<P: AsRef<Path> + Into<PathBuf>>(file: P) -> Result<Self, LoadTomlError> {
+        load_toml(file)
     }
 
     pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<String, Package> {

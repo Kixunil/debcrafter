@@ -176,7 +176,7 @@ pub fn get_args() -> (PathBuf, PathBuf, bool) {
 
 pub fn generate<F: FnMut(&PackageInstance, LazyCreateBuilder) -> io::Result<()>>(gen_file: GenFileName, deps: debcrafter::FileDeps, mut f: F) {
     let (source, dest, append) = get_args();
-    let pkg = Package::load(&source);
+    let pkg = Package::load(&source).expect("Failed to load package");
     let includes = pkg.load_includes(source.parent().unwrap_or(".".as_ref()), deps);
 
     if pkg.variants.len() == 0 {

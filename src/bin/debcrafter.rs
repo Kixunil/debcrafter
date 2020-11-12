@@ -143,7 +143,7 @@ fn copy_changelog(deb_dir: &Path, source: &Path) {
 fn load_package(source_dir: &Path, package: &str) -> (Package, PathBuf) {
     let mut filename = source_dir.join(package);
     filename.set_extension("sps");
-    let package = Package::load(&filename);
+    let package = Package::load(&filename).expect("Failed to load package");
     (package, filename)
 }
 
@@ -260,12 +260,12 @@ fn main() {
     let mut dep_file = write_deps.map(|dep_file| fs::File::create(dep_file).expect("failed to open dependency file"));
 
     if split_source {
-        let mut source = debcrafter::load_file::<SingleSource, _>(&spec_file);
+        let mut source = debcrafter::load_toml::<SingleSource, _>(&spec_file).expect("Failed to load source");
         let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
         
         gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer, dep_file.as_mut())
     } else {
-        let repo = debcrafter::load_file::<Repository, _>(&spec_file);
+        let repo = debcrafter::load_toml::<Repository, _>(&spec_file).expect("Failed to load repository");
         
         for (name, mut source) in repo.sources {
             gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer, dep_file.as_mut())
