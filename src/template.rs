@@ -159,6 +159,31 @@ impl<S1, S2> Query for BTreeMap<S1, S2> where S1: Borrow<str> + Eq + Ord, S2: As
         BTreeMap::get(self, key).map(AsRef::as_ref)
     }
 }
+
+pub struct ExpandTemplate<'a, V> where V: Query {
+    template: &'a str,
+    vars: V,
+}
+
+impl<'a, V> fmt::Display for ExpandTemplate<'a, V> where V: Query {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for component in parse(self.template) {
+            match component {
+                Component::Constant(val) => write!(f, "{}", val)?,
+                Component::Variable(var) => write!(f, "{}", self.vars.get(var).ok_or(var).expect("Missing variable"))?,
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn expand_to_cow<'a, V: Query>(template: &'a str, vars: V) -> Cow<'a, str> {
+    match parse(template).next().expect("empty parser") {
+        Component::Constant(val) if val == template => Cow::Borrowed(template),
+        _ => Cow::Owned(ExpandTemplate { template, vars, }.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Component::{self, *};
