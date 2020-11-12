@@ -1,8 +1,9 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 
 #[derive(Copy, Clone)]
 pub struct Config<'a> {
@@ -28,7 +29,7 @@ pub trait HandlePostinst: Sized {
     fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
     fn generate_const_var(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, val: &str) -> Result<(), Self::Error>;
     fn generate_var_using_script(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, script: &str) -> Result<(), Self::Error>;
-    fn generate_var_using_template(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, template: &str) -> Result<(), Self::Error>;
+    fn generate_var_using_template(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, template: &str, constatnts: ConstantsByVariant<'_>) -> Result<(), Self::Error>;
     fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
@@ -49,14 +50,31 @@ pub trait HandlePostinst: Sized {
     fn finish(self) -> Result<(), Self::Error>;
 }
 
+pub struct ConstantsByVariant<'a> {
+    variant: Option<&'a str>,
+    constants: &'a Map<String, Map<String, String>>,
+}
+
+impl<'a> crate::template::Query for ConstantsByVariant<'a> {
+    fn get(&self, key: &str) -> Option<&str> {
+        if key == "variant" {
+            self.variant
+        } else {
+            self.constants.get(key)?.get(self.variant?).map(AsRef::as_ref)
+        }
+    }
+}
+
 pub trait Package<'a>: PackageConfig {
     fn config_pkg_name(&self) -> &str;
+    fn variant(&self) -> Option<&str>;
+    fn constants_by_variant(&self) -> ConstantsByVariant<'_>;
     fn config_sub_dir(&self) -> Cow<'a, str>;
     fn internal_config_sub_dir(&self) -> Cow<'a, str>;
     fn service_name(&self) -> Option<&str>;
     fn service_user(&self) -> Option<&str>;
     fn service_group(&self) -> Option<&str>;
-    fn get_include(&self, name: &str) -> Option<&super::Package>;
+    fn get_include(&self, name: &VPackageName) -> Option<&super::Package>;
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
 }
@@ -64,6 +82,17 @@ pub trait Package<'a>: PackageConfig {
 impl<'a> Package<'a> for ServiceInstance<'a> {
     fn config_pkg_name(&self) -> &str {
         &self.name
+    }
+
+    fn variant(&self) -> Option<&str> {
+        self.variant
+    }
+
+    fn constants_by_variant(&self) -> ConstantsByVariant<'_> {
+        ConstantsByVariant {
+            variant: self.variant,
+            constants: self.map_variants,
+        }
     }
 
     fn config_sub_dir(&self) -> Cow<'a, str> {
@@ -90,7 +119,7 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
         }
     }
 
-    fn get_include(&self, name: &str) -> Option<&super::Package> {
+    fn get_include(&self, name: &VPackageName) -> Option<&super::Package> {
         self.includes.as_ref().and_then(|includes| includes.get(name))
     }
 
@@ -108,6 +137,17 @@ impl<'a> Package<'a> for PackageInstance<'a> {
         &self.name
     }
 
+    fn variant(&self) -> Option<&str> {
+        self.variant
+    }
+
+    fn constants_by_variant(&self) -> ConstantsByVariant<'_> {
+        ConstantsByVariant {
+            variant: self.variant,
+            constants: self.map_variants,
+        }
+    }
+
     fn config_sub_dir(&self) -> Cow<'a, str> {
         if let PackageSpec::ConfExt(confext) = &self.spec {
             if confext.external {
@@ -115,9 +155,9 @@ impl<'a> Package<'a> for PackageInstance<'a> {
             } else {
                 self
                     .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
                     .instantiate(self.variant, None)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
+                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends.expand_to_cow(self.variant), self.name, self.variant.unwrap()))
                     .config_sub_dir()
                     .into_owned()
                     .into()
@@ -134,9 +174,9 @@ impl<'a> Package<'a> for PackageInstance<'a> {
             } else {
                 self
                     .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends, self.name))
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
                     .instantiate(self.variant, None)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends, self.name, self.variant.unwrap()))
+                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends.expand_to_cow(self.variant), self.name, self.variant.unwrap()))
                     .config_sub_dir()
                     .into_owned()
                     .into()
@@ -162,7 +202,7 @@ impl<'a> Package<'a> for PackageInstance<'a> {
         self.as_service().and_then(|service| ServiceInstance::service_group(&service))
     }
 
-    fn get_include(&self, name: &str) -> Option<&super::Package> {
+    fn get_include(&self, name: &VPackageName) -> Option<&super::Package> {
         self.includes.as_ref().and_then(|includes| includes.get(name))
     }
 
@@ -196,7 +236,7 @@ struct WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
 enum WriteVarType<'a> {
     Simple {
         ty: &'a VarType,
-        package: &'a str,
+        package: Cow<'a, str>,
         name: &'a str,
         ignore_empty: bool,
     },
@@ -285,8 +325,9 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 }
 
                 for (pkg_name, vars) in evars {
+                    let pkg_name = pkg_name.expand_to_cow(package.variant());
                     for (var, _var_spec) in vars {
-                        handler.fetch_var(&config_ctx, pkg_name, var)?;
+                        handler.fetch_var(&config_ctx, &pkg_name, var)?;
                     }
 
                 }
@@ -295,7 +336,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     match &var_spec.val {
                         HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
                         HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
-                        HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, template)?,
+                        HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, template, package.constants_by_variant())?,
                     }
                 }
 
@@ -307,7 +348,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             structure: compute_structure(&var, &var_spec.structure),
                             ty: WriteVarType::Simple {
                                 ty: &var_spec.ty,
-                                package: &config_ctx.package_name,
+                                package: Cow::Borrowed(config_ctx.package_name),
                                 name: var,
                                 ignore_empty: var_spec.ignore_empty,
                             },
@@ -317,7 +358,6 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
 
                 for (pkg_name, vars) in evars {
                     let pkg = package.get_include(pkg_name).ok_or(pkg_name).expect("Package not found");
-
                     for (var, var_spec) in vars {
                         if var_spec.store {
                             let ty = &pkg
@@ -328,7 +368,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                                 } else {
                                     None
                                 })
-                                .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name))
+                                .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name.expand_to_cow(package.variant())))
                                 .ty;
 
                             let out_var = var_spec.name.as_ref().unwrap_or(var);
@@ -336,7 +376,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                                 structure: compute_structure(&out_var, &var_spec.structure),
                                 ty: WriteVarType::Simple {
                                     ty,
-                                    package: pkg_name,
+                                    package: pkg_name.expand_to_cow(package.variant()),
                                     name: var,
                                     ignore_empty: var_spec.ignore_empty,
                                 },
@@ -363,11 +403,13 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                                     })
                                     .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
                             } else {
+                                let v_pkg_name = VPackageName::try_from(String::from(pkg_name))
+                                    .unwrap_or_else(|error| panic!("Invalid package name in template {}: {}", template, error));
                                 package
                                     .config()
                                     .iter()
                                     .find_map(|(_, conf)| if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                                        evars.get(pkg_name).and_then(|pkg| pkg.get(var_name))
+                                        evars.get(&v_pkg_name).and_then(|pkg| pkg.get(var_name))
                                     } else {
                                         None
                                     })
@@ -381,7 +423,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             structure: compute_structure(&var, &var_spec.structure),
                             ty: WriteVarType::Simple {
                                 ty: &var_spec.ty,
-                                package: &config_ctx.package_name,
+                                package: Cow::Borrowed(config_ctx.package_name),
                                 name: var,
                                 ignore_empty: var_spec.ignore_empty,
                             },
@@ -452,7 +494,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             name,
                             ty,
                             ignore_empty,
-                        } => handler.write_var(&config_ctx, package, name, ty, var.structure.clone(), ignore_empty)?,
+                        } => handler.write_var(&config_ctx, &package, name, ty, var.structure.clone(), ignore_empty)?,
                         WriteVarType::File { data, } => handler.include_fvar(&config_ctx, data, var.structure.clone(), &package.config_sub_dir())?,
                     }
                     

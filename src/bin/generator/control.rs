@@ -1,6 +1,7 @@
 use crate::codegen::{LazyCreateBuilder};
 use debcrafter::{PackageInstance, PackageSpec, ConfType, Set};
 use std::io::{self, Write};
+use debcrafter::postinst::Package;
 
 fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &str) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
     use std::borrow::Cow;
@@ -33,14 +34,14 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
                     databases.push_str(db_dep);
                 }
                 dbconfig.push_str(NO_THANKS);
-                Some(std::iter::once(dbconfig.into()).chain(std::iter::once(databases.into())))
+                Some(std::iter::once(dbconfig.into()).chain(std::iter::once(Cow::Owned(databases))))
             } else {
                 None
             };
-            (Some(&service.bin_package), &service.config, extra, true, service.min_patch.as_ref(), false)
+            (Some(Cow::Borrowed(&*service.bin_package)), &service.config, extra, true, service.min_patch.as_ref(), false)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(&confext.extends), &confext.config, None, false, confext.min_patch.as_ref(), confext.external)
+            (Some(confext.extends.expand_to_cow(instance.variant())), &confext.config, None, false, confext.min_patch.as_ref(), confext.external)
         } else {
             (None, &confext.config, None, false, None, confext.external)
         },
@@ -62,13 +63,15 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
 
     config
         .iter()
-        .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type { Some(evars) } else { None })
+        .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type {
+            Some(evars.keys().map(|pkg_name| pkg_name.expand_to_cow(instance.variant())))
+        } else {
+            None
+        })
         .flatten()
-        .map(|(pkg, _)| pkg.as_str())
-        .chain(instance.depends.iter().map(AsRef::as_ref))
-        .map(Into::into)
+        .chain(instance.depends.iter().map(Into::into))
         .chain(main_dep.map(|main_dep| if external {
-            Cow::Borrowed(&**main_dep)
+            main_dep
         } else {
             Cow::Owned(patch.map(|patch| format!("{} (>= {}-{})", main_dep, upstream_version, patch)).unwrap_or_else(|| format!("{} (>= {})", main_dep, upstream_version)))
         }))
@@ -118,12 +121,12 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
         if confext.depends_on_extended {
             write_deps(&mut out, "Recommends", instance.recommends)?;
         } else {
-            write_deps(&mut out, "Recommends", std::iter::once(&confext.extends).chain(instance.recommends))?;
+            write_deps(&mut out, "Recommends", std::iter::once(&*confext.extends.expand_to_cow(instance.variant())).chain(instance.recommends.iter().map(AsRef::as_ref)))?;
         }
-        writeln!(out, "Enhances: {}", confext.extends)?;
+        writeln!(out, "Enhances: {}", confext.extends.expand_to_cow(instance.variant()))?;
         match &confext.replaces {
             BoolOrVecString::Bool(false) => (),
-            BoolOrVecString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends)?,
+            BoolOrVecString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends.expand_to_cow(instance.variant()))?,
             BoolOrVecString::VecString(replaces) => write_deps(&mut out, "Replaces", replaces)?,
         }
     } else {

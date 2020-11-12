@@ -42,11 +42,63 @@ impl PackageConfig for ServicePackageSpec {
     }
 }
 
+const PKG_NAME_VARIANT_SUFFIX: &str = "-$variant";
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
+#[serde(try_from = "String")]
+pub struct VPackageName(String);
+
+impl VPackageName {
+    fn _base(string: &str) -> &str {
+        if string.ends_with(PKG_NAME_VARIANT_SUFFIX) {
+            &string[..(string.len() - PKG_NAME_VARIANT_SUFFIX.len())]
+        } else {
+            &string
+        }
+    }
+
+    pub fn base(&self) -> &str {
+        Self::_base(&self.0)
+    }
+
+    pub fn expand_to_cow(&self, variant: Option<&str>) -> Cow<'_, str> {
+        match (variant, self.0.ends_with(PKG_NAME_VARIANT_SUFFIX)) {
+            (None, true) => panic!("can't expand {}: missing variant", self.0),
+            (Some(variant), true) => Cow::Owned([self.base(), variant].join("")),
+            // We intentionally allow NOT expanding.
+            // Not all packages need to be expanded. The validity will be checked anyway.
+            (Some(_), false) | (None, false) => Cow::Borrowed(&self.0),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Invalid character {c} in package name {string}")]
+pub struct VPackageNameError {
+    c: char,
+    string: String,
+}
+
+impl TryFrom<String> for VPackageName {
+    type Error = VPackageNameError;
+
+    fn try_from(string: String) -> Result<Self, Self::Error> {
+        for c in Self::_base(&string).chars() {
+            if c != '-' && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+                return Err(VPackageNameError { c, string });
+            }
+        }
+        Ok(VPackageName(string))
+    }
+}
+
 #[derive(Deserialize)]
 pub struct Package {
     pub name: String,
     #[serde(default)]
     pub variants: Set<String>,
+    #[serde(default)]
+    pub map_variants: Map<String, Map<String, String>>,
     #[serde(flatten)]
     pub spec: PackageSpec,
     #[serde(default)]
@@ -69,9 +121,9 @@ pub struct Package {
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
 
-fn load_include<'a>(dir: &'a Path, name: &'a str, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
+fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
     move || {
-        let mut file = dir.join(name);
+        let mut file = dir.join(name.base());
         file.set_extension("sps");
         let package = Package::load(&file).expect("Failed to load include");
         deps.as_mut().map(|deps| deps.insert(file));
@@ -114,7 +166,7 @@ impl Package {
         load_toml(file)
     }
 
-    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<String, Package> {
+    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
         let mut result = Map::new();
         for (_, conf) in self.config() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
@@ -132,7 +184,7 @@ impl Package {
         result
     }
 
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<String, Package>>) -> Option<PackageInstance<'a>> {
+    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<VPackageName, Package>>) -> Option<PackageInstance<'a>> {
         let name = if let Some(variant) = variant {
             // Sanity check
             if !self.variants.contains(variant) {
@@ -150,6 +202,7 @@ impl Package {
         Some(PackageInstance {
             name,
             variant,
+            map_variants: &self.map_variants,
             spec: &self.spec,
             includes,
             depends: &self.depends,
@@ -435,7 +488,7 @@ impl<'de> serde::Deserialize<'de> for BoolOrVecString {
 
 #[derive(Deserialize)]
 pub struct ConfExtPackageSpec {
-    pub extends: String,
+    pub extends: VPackageName,
     #[serde(default)]
     pub replaces: BoolOrVecString,
     #[serde(default)]
@@ -506,7 +559,7 @@ pub enum ConfType {
         #[serde(default)]
         ivars: Map<String, InternalVar>,
         #[serde(default)]
-        evars: Map<String, Map<String, ExternalVar>>,
+        evars: Map<VPackageName, Map<String, ExternalVar>>,
         #[serde(default)]
         hvars: Map<String, HiddenVar>,
         #[serde(default)]
@@ -676,8 +729,9 @@ pub struct Alternative {
 pub struct PackageInstance<'a> {
     pub name: Cow<'a, str>,
     pub variant: Option<&'a str>,
+    pub map_variants: &'a Map<String, Map<String, String>>,
     pub spec: &'a PackageSpec,
-    pub includes: Option<&'a Map<String, Package>>,
+    pub includes: Option<&'a Map<VPackageName, Package>>,
     pub depends: &'a Set<String>,
     pub provides: &'a Set<String>,
     pub recommends: &'a Set<String>,
@@ -694,6 +748,7 @@ impl<'a> PackageInstance<'a> {
             Some(ServiceInstance {
                 name: &self.name,
                 variant: self.variant,
+                map_variants: &self.map_variants,
                 spec: service,
                 includes: self.includes,
             })
@@ -706,8 +761,9 @@ impl<'a> PackageInstance<'a> {
 pub struct ServiceInstance<'a> {
     pub name: &'a Cow<'a, str>,
     pub variant: Option<&'a str>,
+    pub map_variants: &'a Map<String, Map<String, String>>,
     pub spec: &'a ServicePackageSpec,
-    pub includes: Option<&'a Map<String, Package>>,
+    pub includes: Option<&'a Map<VPackageName, Package>>,
 }
 
 impl<'a> ServiceInstance<'a> {

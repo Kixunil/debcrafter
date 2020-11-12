@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr};
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
-use debcrafter::postinst::{HandlePostinst, Config};
+use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant};
 
 struct SduHandler<H: WriteHeader> {
     out: LazyCreate<H>,
@@ -142,15 +142,16 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package, name)
     }
 
-    fn generate_var_using_template(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, template: &str) -> Result<(), Self::Error> {
-        use debcrafter::template::Component;
+    fn generate_var_using_template(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, template: &str, constants: ConstantsByVariant<'_>) -> Result<(), Self::Error> {
+        use debcrafter::template::{Component, Query};
 
         write!(self.out, "RET=\"")?;
         for component in debcrafter::template::parse(template) {
             match component {
                 Component::Constant(val) => write!(self.out, "{}", val)?,
                 Component::Variable(var) if var.starts_with('/') => write!(self.out, "${{CONFIG[{}{}]}}", package, var)?,
-                Component::Variable(var) => write!(self.out, "${{CONFIG[{}]}}", var)?,
+                Component::Variable(var) if var.contains('/') => write!(self.out, "${{CONFIG[{}]}}", var)?,
+                Component::Variable(var) => write!(self.out, "{}", constants.get(var).unwrap_or_else(|| panic!("constant {} not found for variant", var)))?,
             }
         }
         writeln!(self.out, "\"")?;

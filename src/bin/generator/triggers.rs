@@ -51,7 +51,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 },
                 ConfType::Dynamic { evars, cat_dir, cat_files, fvars, .. } =>  {
                     for (package, _) in evars {
-                        writeln!(out, "interest-noawait {}-config-changed", package)?;
+                        writeln!(out, "interest-noawait {}-config-changed", package.expand_to_cow(instance.variant()))?;
                     }
                     if let Some(cat_dir) = cat_dir {
                         dirs.insert(format!("/etc/{}/{}", instance.config_sub_dir(), cat_dir.trim_end_matches('/')));

@@ -1,3 +1,7 @@
+use std::collections::{HashMap, BTreeMap};
+use std::borrow::{Borrow, Cow};
+use std::fmt;
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Component<'a> {
     Constant(&'a str),
@@ -134,6 +138,27 @@ pub fn parse<'a>(template: &'a str) -> Parser<'a> {
     }
 }
 
+pub trait Query {
+    fn get(&self, key: &str) -> Option<&str>;
+}
+
+impl<T: Query> Query for &T {
+    fn get(&self, key: &str) -> Option<&str> {
+        (*self).get(key)
+    }
+}
+
+impl<S1, S2> Query for HashMap<S1, S2> where S1: Borrow<str> + Eq + std::hash::Hash, S2: AsRef<str> {
+    fn get(&self, key: &str) -> Option<&str> {
+        HashMap::get(self, key).map(AsRef::as_ref)
+    }
+}
+
+impl<S1, S2> Query for BTreeMap<S1, S2> where S1: Borrow<str> + Eq + Ord, S2: AsRef<str> {
+    fn get(&self, key: &str) -> Option<&str> {
+        BTreeMap::get(self, key).map(AsRef::as_ref)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::Component::{self, *};
