@@ -2,9 +2,10 @@ use std::{io, fs};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use codegen::{LazyCreateBuilder};
-use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
+use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set, VPackageName};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
+use either::Either;
 
 mod generator;
 mod codegen;
@@ -26,7 +27,9 @@ pub struct Source {
     pub buildsystem: Option<String>,
     #[serde(default)]
     pub autoconf_params: Vec<String>,
-    pub packages: Set<String>,
+    #[serde(default)]
+    pub variants: Set<String>,
+    pub packages: Set<VPackageName>,
     #[serde(default)]
     pub skip_debug_symbols: bool,
     #[serde(default)]
@@ -140,9 +143,8 @@ fn copy_changelog(deb_dir: &Path, source: &Path) {
     }
 }
 
-fn load_package(source_dir: &Path, package: &str) -> (Package, PathBuf) {
-    let mut filename = source_dir.join(package);
-    filename.set_extension("sps");
+fn load_package(source_dir: &Path, package: &VPackageName) -> (Package, PathBuf) {
+    let filename = package.sps_path(source_dir);
     let package = Package::load(&filename).expect("Failed to load package");
     (package, filename)
 }
@@ -193,36 +195,47 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
     std::fs::write(deb_dir.join("compat"), "12\n").expect("Failed to write debian/compat");
 
-    let services = source.packages
+    let mut services = Vec::new();
+
+    let packages = source.packages
         .iter()
-        .map(|package| load_package(source_dir, &package))
-        .filter_map(|(package, filename)| {
-            use debcrafter::postinst::Package as PostinstPackage;
-            let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename); &mut **deps});
-            let includes = package.load_includes(source_dir, deps_opt);
-            let instance = package.instantiate(None, Some(&includes)).expect("Invalid variant");
+        .map(|package| load_package(source_dir, &package));
 
-            for &(extension, generator) in FILE_GENERATORS {
-                let out = create_lazy_builder(&deb_dir, &package.name, extension, false);
-                generator(&instance, out).expect("Failed to generate file");
-            }
+    for (package, filename) in packages {
+        use debcrafter::postinst::Package as PostinstPackage;
+        let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename); &mut **deps});
+        let includes = package.load_includes(source_dir, deps_opt);
 
-            if let Some(service_name) = instance.service_name() {
-                let out = create_lazy_builder(&deb_dir, &package.name, &format!("{}.service", service_name), false);
-                crate::generator::service::generate(&instance, out).expect("Failed to generate file");
-            }
+        let instances = if source.variants.is_empty() || !package.name.is_templated() {
+            Either::Left(std::iter::once(package.instantiate(None, Some(&includes))))
+        } else {
+            Either::Right(source.variants.iter().map(|variant| package.instantiate(Some(variant), Some(&includes))))
+        };
 
-            let out = create_lazy_builder(&deb_dir, "control", "", true);
-            generator::control::generate(&instance, out, &upstream_version).expect("Failed to generate file");
-            generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
+        services.extend(instances
+            .into_iter()
+            .filter_map(|instance| {
+                for &(extension, generator) in FILE_GENERATORS {
+                    let out = create_lazy_builder(&deb_dir, &instance.name, extension, false);
+                    generator(&instance, out).expect("Failed to generate file");
+                }
 
-            instance.as_service().map(|service| ServiceRule {
-                unit_name: ServiceInstance::service_name(&service).to_owned(),
-                refuse_manual_start: service.spec.refuse_manual_start,
-                refuse_manual_stop: service.spec.refuse_manual_stop,
-            })
-        })
-        .collect::<Vec<_>>();
+                if let Some(service_name) = instance.service_name() {
+                    let out = create_lazy_builder(&deb_dir, &instance.name, &format!("{}.service", service_name), false);
+                    crate::generator::service::generate(&instance, out).expect("Failed to generate file");
+                }
+
+                let out = create_lazy_builder(&deb_dir, "control", "", true);
+                generator::control::generate(&instance, out, &upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
+                generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
+
+                instance.as_service().map(|service| ServiceRule {
+                    unit_name: ServiceInstance::service_name(&service).to_owned(),
+                    refuse_manual_start: service.spec.refuse_manual_start,
+                    refuse_manual_stop: service.spec.refuse_manual_stop,
+                })
+            }));
+    }
 
     if let Some(dep_file) = dep_file {
         (|| -> Result<(), io::Error> {

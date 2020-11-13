@@ -47,7 +47,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         for (file, config) in instance.config() {
             match &config.conf_type {
                 ConfType::Static { .. } =>  {
-                    files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
+                    files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file.expand(instance.constants_by_variant())));
                 },
                 ConfType::Dynamic { evars, cat_dir, cat_files, fvars, .. } =>  {
                     for (package, _) in evars {
@@ -102,11 +102,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             writeln!(out, "interest-noawait {}", trigger)?;
         }
         for trigger in &configs_changed {
-            writeln!(out, "interest-noawait {}-config-changed", trigger)?;
+            writeln!(out, "interest-noawait {}-config-changed", trigger.expand(instance.constants_by_variant()))?;
         }
 
         for trigger in instance.extra_triggers {
-            writeln!(out, "interest-noawait {}", trigger)?;
+            writeln!(out, "interest-noawait {}", trigger.expand(instance.constants_by_variant()))?;
         }
     }
     Ok(())

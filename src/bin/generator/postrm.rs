@@ -9,7 +9,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let mut triggers = Set::new();
     for (file_name, conf) in instance.config() {
         if let ConfType::Dynamic { postprocess, .. } = &conf.conf_type {
-            let abs_file = format!("/etc/{}/{}", instance.config_sub_dir(), file_name);
+            let abs_file = format!("/etc/{}/{}", instance.config_sub_dir(), file_name.expand(instance.constants_by_variant()));
             writeln!(out, "\trm -f {}", abs_file)?;
 
             triggers.insert(Cow::Owned(abs_file));

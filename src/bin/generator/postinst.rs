@@ -1,8 +1,37 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr, VPackageName};
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant};
+use std::convert::TryFrom;
+
+struct ShellEscaper<W: fmt::Write>(W);
+
+impl<W: fmt::Write> fmt::Write for ShellEscaper<W> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for ch in s.chars() {
+            if ch == '\'' {
+                write!(self.0, "'\\''")?;
+            } else {
+                write!(self.0, "{}", ch)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct DisplayEscaped<D: fmt::Display>(D);
+
+impl<D: fmt::Display> fmt::Display for DisplayEscaped<D> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use fmt::Write;
+
+        write!(f, "'")?;
+        write!(ShellEscaper(&mut *f), "{}", self.0)?;
+        write!(f, "'")
+    }
+}
+
 
 struct SduHandler<H: WriteHeader> {
     out: LazyCreate<H>,
@@ -107,7 +136,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             _ => writeln!(self.out, "echo '# Automtically generated - DO NOT MODIFY!' >> \"{}\"", config.file_name)?,
         }
 
-        if let Some(group) = config.change_group {
+        if let Some(group) = &config.change_group {
             writeln!(self.out, "chgrp \"{}\" \"{}\"", group, config.file_name)?;
         }
 
@@ -150,7 +179,12 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             match component {
                 Component::Constant(val) => write!(self.out, "{}", val)?,
                 Component::Variable(var) if var.starts_with('/') => write!(self.out, "${{CONFIG[{}{}]}}", package, var)?,
-                Component::Variable(var) if var.contains('/') => write!(self.out, "${{CONFIG[{}]}}", var)?,
+                Component::Variable(var) if var.contains('/') => {
+                    let pos = var.find('/').expect("unreachable");
+                    let pkg_name = VPackageName::try_from(var[..pos].to_owned()).expect("invalid package name");
+                    let var_name = &var[(pos + 1)..];
+                    write!(self.out, "${{CONFIG[{}/{}]}}", pkg_name.expand_to_cow(constants.get("variant")), var_name)?;
+                },
                 Component::Variable(var) => write!(self.out, "{}", constants.get(var).unwrap_or_else(|| panic!("constant {} not found for variant", var)))?,
             }
         }
@@ -369,17 +403,12 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "fi")
     }
 
-    fn postprocess_conf_file(&mut self, command: &[String]) -> Result<(), Self::Error> {
-        for arg in command {
-            write!(self.out, "'")?;
-            for ch in arg.chars() {
-                if ch == '\'' {
-                    write!(self.out, "'\\''")?;
-                } else {
-                    write!(self.out, "{}", ch)?;
-                }
-            }
-            write!(self.out, "' ")?;
+    fn postprocess_conf_file<I>(&mut self, command: I) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display {
+        let mut iter = command.into_iter();
+        // sanity check
+        write!(self.out, "{}", iter.next().expect("Can't postprocess: missing program name"))?;
+        for arg in iter {
+            write!(self.out, " {}", DisplayEscaped(arg))?;
         }
         writeln!(self.out)?;
         Ok(())
@@ -516,3 +545,21 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     debcrafter::postinst::handle_instance(handler, instance)
 }
 
+#[cfg(test)]
+mod tests {
+    macro_rules! test_case {
+        ($name:ident, $input:expr, $expected:expr) => {
+            #[test]
+            fn $name() {
+                assert_eq!(super::DisplayEscaped($input).to_string(), $expected);
+            }
+        }
+    }
+
+    test_case!(escape_empty, "", "''");
+    test_case!(escape_single_char, "x", "'x'");
+    test_case!(escape_few_chars, "xydfd", "'xydfd'");
+    test_case!(escape_single_quote, "'", "''\\'''");
+    test_case!(escape_to_quotes, "''", "''\\'''\\'''");
+    test_case!(escape_letter_quote_letter, "a'b", "'a'\\''b'");
+}

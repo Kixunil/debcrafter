@@ -3,6 +3,7 @@ use serde_derive::Deserialize;
 use std::path::{Path, PathBuf};
 use std::borrow::Cow;
 use std::convert::TryFrom;
+use template::TemplateString;
 
 pub mod postinst;
 pub mod template;
@@ -15,34 +16,34 @@ fn create_true() -> bool {
 }
 
 pub trait PackageConfig {
-    fn config(&self) -> &Map<String, Config>;
+    fn config(&self) -> &Map<TemplateString, Config>;
 }
 
 impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         (*self).config()
     }
 }
 
 impl<'a> PackageConfig for PackageInstance<'a> {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         &self.spec.config()
     }
 }
 
 impl<'a> PackageConfig for ServiceInstance<'a> {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         &self.spec.config()
     }
 }
 
 impl PackageConfig for ServicePackageSpec {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         &self.config
     }
 }
 
-const PKG_NAME_VARIANT_SUFFIX: &str = "-$variant";
+const PKG_NAME_VARIANT_SUFFIX: &str = "-@variant";
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
 #[serde(try_from = "String")]
@@ -57,14 +58,24 @@ impl VPackageName {
         }
     }
 
-    pub fn base(&self) -> &str {
+    pub fn is_templated(&self) -> bool {
+        self.0.ends_with(PKG_NAME_VARIANT_SUFFIX)
+    }
+
+    fn base(&self) -> &str {
         Self::_base(&self.0)
+    }
+
+    pub fn sps_path(&self, parent_dir: &Path) -> PathBuf {
+        let mut path = parent_dir.join(&self.0);
+        path.set_extension("sps");
+        path
     }
 
     pub fn expand_to_cow(&self, variant: Option<&str>) -> Cow<'_, str> {
         match (variant, self.0.ends_with(PKG_NAME_VARIANT_SUFFIX)) {
             (None, true) => panic!("can't expand {}: missing variant", self.0),
-            (Some(variant), true) => Cow::Owned([self.base(), variant].join("")),
+            (Some(variant), true) => Cow::Owned([self.base(), variant].join("-")),
             // We intentionally allow NOT expanding.
             // Not all packages need to be expanded. The validity will be checked anyway.
             (Some(_), false) | (None, false) => Cow::Borrowed(&self.0),
@@ -94,27 +105,25 @@ impl TryFrom<String> for VPackageName {
 
 #[derive(Deserialize)]
 pub struct Package {
-    pub name: String,
-    #[serde(default)]
-    pub variants: Set<String>,
+    pub name: VPackageName,
     #[serde(default)]
     pub map_variants: Map<String, Map<String, String>>,
     #[serde(flatten)]
     pub spec: PackageSpec,
     #[serde(default)]
-    pub depends: Set<String>,
+    pub depends: Set<TemplateString>,
     #[serde(default)]
-    pub provides: Set<String>,
+    pub provides: Set<TemplateString>,
     #[serde(default)]
-    pub recommends: Set<String>,
+    pub recommends: Set<TemplateString>,
     #[serde(default)]
-    pub suggests: Set<String>,
+    pub suggests: Set<TemplateString>,
     #[serde(default)]
-    pub conflicts: Set<String>,
+    pub conflicts: Set<TemplateString>,
     #[serde(default)]
-    pub extended_by: Set<String>,
+    pub extended_by: Set<TemplateString>,
     #[serde(default)]
-    pub extra_triggers: Set<String>,
+    pub extra_triggers: Set<TemplateString>,
     #[serde(default)]
     pub migrations: Map<MigrationVersion, Migration>,
 }
@@ -123,8 +132,7 @@ pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
 
 fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
     move || {
-        let mut file = dir.join(name.base());
-        file.set_extension("sps");
+        let file = name.sps_path(dir);
         let package = Package::load(&file).expect("Failed to load include");
         deps.as_mut().map(|deps| deps.insert(file));
         package
@@ -184,22 +192,10 @@ impl Package {
         result
     }
 
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<VPackageName, Package>>) -> Option<PackageInstance<'a>> {
-        let name = if let Some(variant) = variant {
-            // Sanity check
-            if !self.variants.contains(variant) {
-                return None;
-            }
+    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<VPackageName, Package>>) -> PackageInstance<'a> {
+        let name = self.name.expand_to_cow(variant);
 
-            (&[&self.name.as_str(), variant]).join("-").into()
-        } else {
-            if self.variants.len() > 0 {
-                return None;
-            }
-            (&self.name).into()
-        };
-
-        Some(PackageInstance {
+        PackageInstance {
             name,
             variant,
             map_variants: &self.map_variants,
@@ -213,12 +209,12 @@ impl Package {
             extended_by: &self.extended_by,
             extra_triggers: &self.extra_triggers,
             migrations: &self.migrations,
-        })
+        }
     }
 }
 
 impl PackageConfig for Package {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         self.spec.config()
     }
 }
@@ -232,7 +228,7 @@ pub enum PackageSpec {
 }
 
 impl PackageSpec {
-    pub fn summary(&self) -> &Option<String> {
+    pub fn summary(&self) -> &Option<TemplateString> {
         match self {
             PackageSpec::Base(base) => &base.summary,
             PackageSpec::Service(service) => &service.summary,
@@ -240,7 +236,7 @@ impl PackageSpec {
         }
     }
 
-    pub fn long_doc(&self) -> &Option<String> {
+    pub fn long_doc(&self) -> &Option<TemplateString> {
         match self {
             PackageSpec::Base(base) => &base.long_doc,
             PackageSpec::Service(service) => &service.long_doc,
@@ -250,7 +246,7 @@ impl PackageSpec {
 }
 
 impl PackageConfig for PackageSpec {
-    fn config(&self) -> &Map<String, Config> {
+    fn config(&self) -> &Map<TemplateString, Config> {
         match self {
             PackageSpec::Base(base) => &base.config,
             PackageSpec::Service(service) => &service.config,
@@ -261,7 +257,7 @@ impl PackageConfig for PackageSpec {
 
 #[derive(Deserialize)]
 pub struct Migration {
-    pub config: String
+    pub config: TemplateString,
 }
 
 #[derive(Clone, Eq, PartialEq, Deserialize)]
@@ -368,19 +364,19 @@ pub struct ExtraGroup {
 pub struct BasePackageSpec {
     pub architecture: String,
     #[serde(default)]
-    pub config: Map<String, Config>,
+    pub config: Map<TemplateString, Config>,
     #[serde(default)]
-    pub summary: Option<String>,
+    pub summary: Option<TemplateString>,
     #[serde(default)]
-    pub long_doc: Option<String>,
+    pub long_doc: Option<TemplateString>,
     #[serde(default)]
     pub databases: Map<String, DbConfig>,
     #[serde(default)]
-    pub add_files: Vec<String>,
+    pub add_files: Vec<TemplateString>,
     #[serde(default)]
-    pub add_dirs: Vec<String>,
+    pub add_dirs: Vec<TemplateString>,
     #[serde(default)]
-    pub add_links: Vec<String>,
+    pub add_links: Vec<TemplateString>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
@@ -400,45 +396,47 @@ pub struct ServicePackageSpec {
     pub conf_d: Option<ConfDir>,
     pub user: UserSpec,
     #[serde(default)]
-    pub config: Map<String, Config>,
+    pub config: Map<TemplateString, Config>,
     #[serde(default)]
     pub service_type: Option<String>,
     #[serde(default)]
     pub exec_stop: Option<String>,
     #[serde(default)]
-    pub after: Option<String>,
+    pub after: Option<TemplateString>,
     #[serde(default)]
-    pub before: Option<String>,
+    pub before: Option<TemplateString>,
     #[serde(default)]
-    pub wants: Option<String>,
+    pub wants: Option<TemplateString>,
     #[serde(default)]
-    pub requires: Option<String>,
+    pub requires: Option<TemplateString>,
     #[serde(default)]
-    pub binds_to: Option<String>,
+    pub binds_to: Option<TemplateString>,
     #[serde(default)]
-    pub part_of: Option<String>,
+    pub part_of: Option<TemplateString>,
     #[serde(default)]
-    pub wanted_by: Option<String>,
+    pub wanted_by: Option<TemplateString>,
     #[serde(default)]
     pub refuse_manual_start: bool,
     #[serde(default)]
     pub refuse_manual_stop: bool,
     #[serde(default)]
-    pub extra_service_config: Option<String>,
+    pub runtime_dir: Option<RuntimeDir>,
     #[serde(default)]
-    pub summary: Option<String>,
+    pub extra_service_config: Option<TemplateString>,
     #[serde(default)]
-    pub long_doc: Option<String>,
+    pub summary: Option<TemplateString>,
+    #[serde(default)]
+    pub long_doc: Option<TemplateString>,
     #[serde(default)]
     pub databases: Map<String, DbConfig>,
     #[serde(default)]
-    pub extra_groups: Map<String, ExtraGroup>,
+    pub extra_groups: Map<TemplateString, ExtraGroup>,
     #[serde(default)]
-    pub add_files: Vec<String>,
+    pub add_files: Vec<TemplateString>,
     #[serde(default)]
-    pub add_dirs: Vec<String>,
+    pub add_dirs: Vec<TemplateString>,
     #[serde(default)]
-    pub add_links: Vec<String>,
+    pub add_links: Vec<TemplateString>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
@@ -447,30 +445,35 @@ pub struct ServicePackageSpec {
     pub patch_foreign: Map<String, String>,
 }
 
-pub enum BoolOrVecString {
-    Bool(bool),
-    VecString(Vec<String>),
+#[derive(Deserialize)]
+pub struct RuntimeDir {
+    pub mode: String,
 }
 
-impl Default for BoolOrVecString {
+pub enum BoolOrVecTemplateString {
+    Bool(bool),
+    VecString(Vec<TemplateString>),
+}
+
+impl Default for BoolOrVecTemplateString {
     fn default() -> Self {
-        BoolOrVecString::Bool(false)
+        BoolOrVecTemplateString::Bool(false)
     }
 }
 
-impl<'de> serde::Deserialize<'de> for BoolOrVecString {
+impl<'de> serde::Deserialize<'de> for BoolOrVecTemplateString {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
         struct Visitor;
 
         impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = BoolOrVecString;
+            type Value = BoolOrVecTemplateString;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> std::fmt::Result {
                 write!(formatter, "bool or a sequence of strings")
             }
 
             fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
-                Ok(BoolOrVecString::Bool(v))
+                Ok(BoolOrVecTemplateString::Bool(v))
             }
 
             fn visit_seq<A>(self, mut v: A) -> Result<Self::Value, A::Error> where A: serde::de::SeqAccess<'de> {
@@ -478,7 +481,7 @@ impl<'de> serde::Deserialize<'de> for BoolOrVecString {
                 while let Some(item) = v.next_element()? {
                     vec.push(item);
                 }
-                Ok(BoolOrVecString::VecString(vec))
+                Ok(BoolOrVecTemplateString::VecString(vec))
             }
         }
 
@@ -490,24 +493,24 @@ impl<'de> serde::Deserialize<'de> for BoolOrVecString {
 pub struct ConfExtPackageSpec {
     pub extends: VPackageName,
     #[serde(default)]
-    pub replaces: BoolOrVecString,
+    pub replaces: BoolOrVecTemplateString,
     #[serde(default)]
     pub depends_on_extended: bool,
     pub min_patch: Option<String>,
     #[serde(default)]
     pub external: bool,
     #[serde(default)]
-    pub summary: Option<String>,
+    pub summary: Option<TemplateString>,
     #[serde(default)]
-    pub long_doc: Option<String>,
+    pub long_doc: Option<TemplateString>,
     #[serde(default)]
-    pub config: Map<String, Config>,
+    pub config: Map<TemplateString, Config>,
     #[serde(default)]
-    pub add_files: Vec<String>,
+    pub add_files: Vec<TemplateString>,
     #[serde(default)]
-    pub add_dirs: Vec<String>,
+    pub add_dirs: Vec<TemplateString>,
     #[serde(default)]
-    pub add_links: Vec<String>,
+    pub add_links: Vec<TemplateString>,
     #[serde(default)]
     pub add_manpages: Vec<String>,
     #[serde(default)]
@@ -525,7 +528,7 @@ pub struct ConfDir {
 #[derive(Deserialize)]
 pub struct UserSpec {
     #[serde(default)]
-    pub name: Option<String>,
+    pub name: Option<TemplateString>,
     #[serde(default)]
     pub group: bool,
     #[serde(default)]
@@ -553,7 +556,7 @@ pub enum ConfType {
     Static { content: String, #[serde(default)] internal: bool, },
     Dynamic {
         format: ConfFormat,
-        insert_header: Option<String>,
+        insert_header: Option<TemplateString>,
         #[serde(default)]
         with_header: bool,
         #[serde(default)]
@@ -576,7 +579,7 @@ pub enum ConfType {
 #[derive(Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct PostProcess {
-    pub command: Vec<String>,
+    pub command: Vec<TemplateString>,
     #[serde(default)]
     pub generates: Vec<GeneratedFile>,
     #[serde(default)]
@@ -622,11 +625,11 @@ impl fmt::Display for ConfFormat {
 pub struct InternalVar {
     #[serde(flatten)]
     pub ty: VarType,
-    pub summary: String,
+    pub summary: TemplateString,
     #[serde(default)]
-    pub long_doc: Option<String>,
+    pub long_doc: Option<TemplateString>,
     #[serde(default)]
-    pub default: Option<String>,
+    pub default: Option<TemplateString>,
     pub priority: DebconfPriority,
     #[serde(default = "create_true")]
     pub store: bool,
@@ -673,7 +676,7 @@ pub struct HiddenVar {
 #[serde(rename_all = "snake_case")]
 pub enum HiddenVarVal {
     Constant(String),
-    Script(String),
+    Script(TemplateString),
     Template(String),
 }
 
@@ -713,8 +716,8 @@ pub enum FileType {
 pub struct CreateFsObj {
     // TODO: use better type
     pub mode: u16,
-    pub owner: String,
-    pub group: String,
+    pub owner: TemplateString,
+    pub group: TemplateString,
     #[serde(default)]
     pub only_parent: bool,
 }
@@ -732,13 +735,13 @@ pub struct PackageInstance<'a> {
     pub map_variants: &'a Map<String, Map<String, String>>,
     pub spec: &'a PackageSpec,
     pub includes: Option<&'a Map<VPackageName, Package>>,
-    pub depends: &'a Set<String>,
-    pub provides: &'a Set<String>,
-    pub recommends: &'a Set<String>,
-    pub suggests: &'a Set<String>,
-    pub conflicts: &'a Set<String>,
-    pub extended_by: &'a Set<String>,
-    pub extra_triggers: &'a Set<String>,
+    pub depends: &'a Set<TemplateString>,
+    pub provides: &'a Set<TemplateString>,
+    pub recommends: &'a Set<TemplateString>,
+    pub suggests: &'a Set<TemplateString>,
+    pub conflicts: &'a Set<TemplateString>,
+    pub extended_by: &'a Set<TemplateString>,
+    pub extra_triggers: &'a Set<TemplateString>,
     pub migrations: &'a Map<MigrationVersion, Migration>,
 }
 
@@ -767,17 +770,21 @@ pub struct ServiceInstance<'a> {
 }
 
 impl<'a> ServiceInstance<'a> {
-    pub fn user_name(&self) -> &'a str {
-        self.spec.user.name.as_ref().map(AsRef::as_ref).unwrap_or(&self.name.as_ref())
+    pub fn user_name(&self) -> Cow<'a, str> {
+        use crate::postinst::Package;
+
+        self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref()))
     }
 
     pub fn service_name(&self) -> &'a str {
         &**self.name
     }
 
-    pub fn service_group(&self) -> Option<&'a str> {
+    pub fn service_group(&self) -> Option<Cow<'a, str>> {
+        use crate::postinst::Package;
+
         if self.spec.user.group {
-            Some(self.spec.user.name.as_ref().map(AsRef::as_ref).unwrap_or(&**self.name))
+            Some(self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref())))
         } else {
             None
         }

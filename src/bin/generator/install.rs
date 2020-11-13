@@ -5,6 +5,7 @@ use crate::codegen::{LazyCreateBuilder};
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
     for (file_name, conf) in instance.config() {
+        let file_name = file_name.expand_to_cow(instance.constants_by_variant());
         if let ConfType::Static { internal, .. } = &conf.conf_type {
             let dir = file_name.rfind('/').map(|pos| &file_name[..pos+1]).unwrap_or("");
             if *internal {
@@ -28,7 +29,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     };
 
     for file in additional_files {
-        writeln!(out, "{}", file)?;
+        writeln!(out, "{}", file.expand(instance.constants_by_variant()))?;
     }
 
     Ok(())

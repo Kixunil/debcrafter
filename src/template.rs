@@ -1,6 +1,7 @@
 use std::collections::{HashMap, BTreeMap};
 use std::borrow::{Borrow, Cow};
 use std::fmt;
+use std::convert::TryFrom;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Component<'a> {
@@ -181,6 +182,43 @@ pub fn expand_to_cow<'a, V: Query>(template: &'a str, vars: V) -> Cow<'a, str> {
     match parse(template).next().expect("empty parser") {
         Component::Constant(val) if val == template => Cow::Borrowed(template),
         _ => Cow::Owned(ExpandTemplate { template, vars, }.to_string()),
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde_derive::Deserialize)]
+#[serde(try_from = "String")]
+pub struct TemplateString(String);
+
+impl TemplateString {
+    pub fn components(&self) -> Parser<'_> {
+        parse(&self.0)
+    }
+
+    pub fn expand_to_cow<V: Query>(&self, vars: V) -> Cow<'_, str> {
+        expand_to_cow(&self.0, vars)
+    }
+
+    pub fn expand<V: Query>(&self, vars: V) -> ExpandTemplate<'_, V> {
+        ExpandTemplate {
+            template: &self.0,
+            vars,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid template")]
+#[non_exhaustive]
+pub struct TemplateError {
+}
+
+impl TryFrom<String> for TemplateString {
+    type Error = TemplateError;
+
+    fn try_from(string: String) -> Result<Self, Self::Error> {
+        for _ in parse(&string) {}
+
+        Ok(TemplateString(string))
     }
 }
 

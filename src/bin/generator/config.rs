@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use debcrafter::{PackageInstance, PackageConfig, ConfType, DebconfPriority};
 use crate::codegen::{LazyCreateBuilder};
+use debcrafter::postinst::Package;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let header = "#!/bin/bash
@@ -16,7 +17,8 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         for (version, migration) in instance.migrations {
             writeln!(out, "\tif dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
             writeln!(out, "\tthen")?;
-            for line in migration.config.trim().split('\n') {
+            let config = migration.config.expand_to_cow(instance.constants_by_variant());
+            for line in config.trim().split('\n') {
                 if line.is_empty() {
                     writeln!(out)?;
                 } else {

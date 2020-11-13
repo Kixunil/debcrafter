@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use debcrafter::{PackageInstance, PackageConfig, ConfType, VarType};
 use crate::codegen::{LazyCreateBuilder};
+use debcrafter::postinst::Package;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
@@ -20,11 +21,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 writeln!(out, "Type: {}", template_type)?;
 
                 if let Some(default) = &var_spec.default {
-                    writeln!(out, "Default: {}", default)?;
+                    writeln!(out, "Default: {}", default.expand(instance.constants_by_variant()))?;
                 }
-                writeln!(out, "Description: {}", var_spec.summary)?;
+                writeln!(out, "Description: {}", var_spec.summary.expand(instance.constants_by_variant()))?;
                 if let Some(long_doc) = &var_spec.long_doc {
-                    crate::codegen::paragraph(&mut out, long_doc)?;
+                    crate::codegen::paragraph(&mut out, &long_doc.expand_to_cow(instance.constants_by_variant()))?;
                 }
             }
         }

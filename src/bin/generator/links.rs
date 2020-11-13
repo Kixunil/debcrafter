@@ -7,7 +7,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     for (file_name, conf) in instance.config() {
         if let ConfType::Static { internal, .. } = &conf.conf_type {
             if *internal {
-                writeln!(out, "/usr/share/{}/internal_config/{} /etc/{}/{}", instance.internal_config_sub_dir(), file_name, instance.internal_config_sub_dir(), file_name)?;
+                writeln!(out, "/usr/share/{}/internal_config/{} /etc/{}/{}", instance.internal_config_sub_dir(), file_name.expand(instance.constants_by_variant()), instance.internal_config_sub_dir(), file_name.expand(instance.constants_by_variant()))?;
             }
         }
     }
@@ -19,7 +19,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     };
 
     for link in additional_links {
-        writeln!(out, "{}", link)?;
+        writeln!(out, "{}", link.expand(instance.constants_by_variant()))?;
     }
 
     Ok(())

@@ -1,10 +1,9 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 //       ^^^^^^^^^ - prevents reporting false warnings
 
 use void::Void;
 use std::io;
 use std::path::PathBuf;
-use debcrafter::{PackageInstance, Package};
 
 pub fn paragraph<W: io::Write>(mut dest: W, text: &str) -> io::Result<()> {
     let mut write_dot = false;
@@ -150,64 +149,6 @@ impl<H: WriteHeader> io::Write for LazyCreate<H> {
             file.flush()
         } else {
             Ok(())
-        }
-    }
-}
-
-pub enum GenFileName<'a> {
-    Extension(&'a str),
-    Raw(&'a str)
-}
-
-/// There are only two arguments: source and destingation
-pub fn get_args() -> (PathBuf, PathBuf, bool) {
-    let mut args = std::env::args_os();
-    args.next().expect("Not even zeroth argument given");
-    let source = args.next().expect("Source not specified.");
-    let dest = args.next().expect("Dest not specified.");
-    let append = match args.next() {
-        Some(ref arg) if *arg == *"--append" => true,
-        Some(arg) => panic!("Unknown argument {:?}", arg),
-        None => false,
-    };
-
-    (source.into(), dest.into(), append)
-}
-
-pub fn generate<F: FnMut(&PackageInstance, LazyCreateBuilder) -> io::Result<()>>(gen_file: GenFileName, deps: debcrafter::FileDeps, mut f: F) {
-    let (source, dest, append) = get_args();
-    let pkg = Package::load(&source).expect("Failed to load package");
-    let includes = pkg.load_includes(source.parent().unwrap_or(".".as_ref()), deps);
-
-    if pkg.variants.len() == 0 {
-        let instance = pkg.instantiate(None, Some(&includes)).expect("Invalid variant");
-        let mut dest = PathBuf::from(dest);
-        match gen_file {
-            GenFileName::Extension(extension) => {
-                dest.push(&*instance.name);
-                dest.set_extension(extension);
-            },
-            GenFileName::Raw(file_name) => {
-                dest.push(file_name);
-            },
-        }
-        f(&instance, LazyCreateBuilder { path: dest, header: None, append, }).expect("Failed to write dest file");
-    } else {
-        let dest = PathBuf::from(dest);
-        for variant in &pkg.variants {
-            let instance = pkg.instantiate(Some(variant), Some(&includes)).expect("Invalid variant");
-            let dest = match gen_file {
-                GenFileName::Extension(extension) => {
-                    let mut dest = dest.join(&*instance.name);
-                    dest.set_extension(extension);
-                    dest
-                },
-                GenFileName::Raw(file_name) => {
-                    dest.join(file_name)
-                },
-            };
-
-            f(&instance, LazyCreateBuilder { path: dest, header: None, append, }).expect("Failed to write dest file");
         }
     }
 }

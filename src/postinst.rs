@@ -5,15 +5,15 @@ use itertools::Either;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Config<'a> {
     pub package_name: &'a str,
     pub file_name: &'a str,
     pub format: &'a ConfFormat,
-    pub insert_header: Option<&'a str>,
+    pub insert_header: Option<Cow<'a, str>>,
     pub with_header: bool,
     pub public: bool,
-    pub change_group: Option<&'a str>,
+    pub change_group: Option<Cow<'a, str>>,
     pub extension: bool,
 }
 
@@ -40,7 +40,7 @@ pub trait HandlePostinst: Sized {
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
-    fn postprocess_conf_file(&mut self, command: &[String]) -> Result<(), Self::Error>;
+    fn postprocess_conf_file<I>(&mut self, command: I) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
     fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<crate::Alternative>;
     fn patch_files<A, B, I>(&mut self, pkg_name: &str, patches: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: AsRef<str>;
@@ -72,8 +72,8 @@ pub trait Package<'a>: PackageConfig {
     fn config_sub_dir(&self) -> Cow<'a, str>;
     fn internal_config_sub_dir(&self) -> Cow<'a, str>;
     fn service_name(&self) -> Option<&str>;
-    fn service_user(&self) -> Option<&str>;
-    fn service_group(&self) -> Option<&str>;
+    fn service_user(&self) -> Option<Cow<'_, str>>;
+    fn service_group(&self) -> Option<Cow<'_, str>>;
     fn get_include(&self, name: &VPackageName) -> Option<&super::Package>;
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
@@ -107,11 +107,11 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
         Some(ServiceInstance::service_name(self))
     }
 
-    fn service_user(&self) -> Option<&str> {
+    fn service_user(&self) -> Option<Cow<'_, str>> {
         Some(self.user_name())
     }
 
-    fn service_group(&self) -> Option<&str> {
+    fn service_group(&self) -> Option<Cow<'_, str>> {
         if self.spec.user.group {
             Some(self.user_name())
         } else {
@@ -157,7 +157,6 @@ impl<'a> Package<'a> for PackageInstance<'a> {
                     .get_include(&confext.extends)
                     .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
                     .instantiate(self.variant, None)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends.expand_to_cow(self.variant), self.name, self.variant.unwrap()))
                     .config_sub_dir()
                     .into_owned()
                     .into()
@@ -176,7 +175,6 @@ impl<'a> Package<'a> for PackageInstance<'a> {
                     .get_include(&confext.extends)
                     .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
                     .instantiate(self.variant, None)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} doesn't know variant {}", confext.extends.expand_to_cow(self.variant), self.name, self.variant.unwrap()))
                     .config_sub_dir()
                     .into_owned()
                     .into()
@@ -194,11 +192,11 @@ impl<'a> Package<'a> for PackageInstance<'a> {
         }
     }
 
-    fn service_user(&self) -> Option<&str> {
+    fn service_user(&self) -> Option<Cow<'_, str>> {
         self.as_service().map(|service| service.user_name())
     }
 
-    fn service_group(&self) -> Option<&str> {
+    fn service_group(&self) -> Option<Cow<'_, str>> {
         self.as_service().and_then(|service| ServiceInstance::service_group(&service))
     }
 
@@ -292,7 +290,7 @@ fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T
         }
         triggers.insert(path);
     }
-    handler.postprocess_conf_file(&postprocess.command)?;
+    handler.postprocess_conf_file(postprocess.command.iter().map(|arg| arg.expand(package.constants_by_variant())))?;
     Ok(())
 }
 
@@ -302,13 +300,13 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
     let mut needs_stopped_service = false;
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, insert_header, with_header, .. } = &config.conf_type {
-            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
+            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name.expand(package.constants_by_variant()));
             // Manual scope due to borrowing issues.
             {
                 let config_ctx = Config {
                     package_name: package.config_pkg_name(),
                     file_name: &file_name,
-                    insert_header: insert_header.as_ref().map(AsRef::as_ref),
+                    insert_header: insert_header.as_ref().map(|header| header.expand_to_cow(package.constants_by_variant())),
                     with_header: *with_header,
                     format,
                     public: config.public,
@@ -335,7 +333,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 for (var, var_spec) in hvars {
                     match &var_spec.val {
                         HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
-                        HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, script)?,
+                        HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, &script.expand_to_cow(package.constants_by_variant()))?,
                         HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, template, package.constants_by_variant())?,
                     }
                 }
@@ -343,6 +341,16 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 let mut write_vars = Vec::new();
 
                 for (var, var_spec) in ivars {
+                    match (&var_spec.ty, package.variant(), &var_spec.default) {
+                         (VarType::BindPort, Some(_), Some(default)) if default.components().vars().count() == 0 => {
+                            panic!("Error: bind port of variable {} in package {} is not templated! This will cause bind failures!", var, package.config_pkg_name())
+                        }
+                        (VarType::BindPort, Some(_), None) => {
+                            panic!("Error: bind port of variable {} in package {} is not templated! This will cause bind failures!", var, package.config_pkg_name())
+                         }
+                        _ => (),
+                    }
+
                     if var_spec.store {
                         write_vars.push(WriteVar {
                             structure: compute_structure(&var, &var_spec.structure),
@@ -388,32 +396,39 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 for (var, var_spec) in hvars {
                     if let HiddenVarVal::Template(template) = &var_spec.val {
                         for var in crate::template::parse(template).vars() {
-                            let pos = var.find('/').expect("Variable missing slash");
-                            let (pkg_name, var_name) = var.split_at(pos);
-                            let var_name = &var_name[1..];
+                            if let Some(pos) = var.find('/') {
+                                let (pkg_name, var_name) = var.split_at(pos);
+                                let var_name = &var_name[1..];
 
-                            if pkg_name.is_empty() {
-                                package
-                                    .config()
-                                    .iter()
-                                    .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                                        ivars.get(var_name)
-                                    } else {
-                                        None
-                                    })
-                                    .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
+                                if pkg_name.is_empty() {
+                                    package
+                                        .config()
+                                        .iter()
+                                        .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                            ivars.get(var_name)
+                                        } else {
+                                            None
+                                        })
+                                        .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
+                                } else {
+                                    let v_pkg_name = VPackageName::try_from(String::from(pkg_name))
+                                        .unwrap_or_else(|error| panic!("Invalid package name in template {}: {}", template, error));
+                                    package
+                                        .config()
+                                        .iter()
+                                        .find_map(|(_, conf)| if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
+                                            evars.get(&v_pkg_name).and_then(|pkg| pkg.get(var_name))
+                                        } else {
+                                            None
+                                        })
+                                        .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, pkg_name));
+                                }
                             } else {
-                                let v_pkg_name = VPackageName::try_from(String::from(pkg_name))
-                                    .unwrap_or_else(|error| panic!("Invalid package name in template {}: {}", template, error));
-                                package
-                                    .config()
-                                    .iter()
-                                    .find_map(|(_, conf)| if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                                        evars.get(&v_pkg_name).and_then(|pkg| pkg.get(var_name))
-                                    } else {
-                                        None
-                                    })
-                                    .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, pkg_name));
+                                use crate::template::Query;
+
+                                if package.constants_by_variant().get(var).is_none() {
+                                    panic!("Unknown constant {}");
+                                }
                             }
                         }
                     }
@@ -523,19 +538,21 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                 for (var, ty) in ivars_iter.chain(hvars_iter) {
                     match ty {
                         VarType::Path { file_type: Some(file_type), create: Some(create) } => {
-                            let owner = if create.owner == "$service" {
+                            let owner = create.owner.expand_to_cow(package.constants_by_variant());
+                            let owner = if let Cow::Borrowed("$service") = owner {
                                 package.service_user().expect("Attempt to use service user but the package is not a service.")
                             } else {
-                                &create.owner
+                                owner
                             };
 
-                            let group = if create.group == "$service" {
+                            let group = create.group.expand_to_cow(package.constants_by_variant());
+                            let group = if let Cow::Borrowed("$service") = group {
                                 package.service_user().expect("Attempt to use service group but it's missing or the package is not a service.")
                             } else {
-                                &create.group
+                                group
                             };
 
-                            handler.create_path(&config_ctx, var, file_type, create.mode, owner, group, create.only_parent)?;
+                            handler.create_path(&config_ctx, var, file_type, create.mode, &owner, &group, create.only_parent)?;
                         },
                         VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
                         _ => (),
@@ -550,12 +567,12 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
 
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { format, cat_dir, cat_files, postprocess, insert_header, with_header, .. } = &config.conf_type {
-            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name);
+            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name.expand(package.constants_by_variant()));
 
             let config_ctx = Config {
                 package_name: package.config_pkg_name(),
                 file_name: &file_name,
-                insert_header: insert_header.as_ref().map(AsRef::as_ref),
+                insert_header: insert_header.as_ref().map(|header| header.expand_to_cow(package.constants_by_variant())),
                 with_header: *with_header,
                 format,
                 public: config.public,
@@ -625,14 +642,14 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
         if let Some(create_user) = &service.spec.user.create {
             let user = service.user_name();
             if create_user.home {
-                handler.prepare_user(user, service.spec.user.group, Some(format_args!("/var/lib/{}", user)))?;
+                handler.prepare_user(&user, service.spec.user.group, Some(format_args!("/var/lib/{}", user)))?;
             } else {
-                handler.prepare_user(user, service.spec.user.group, Option::<&str>::None)?;
+                handler.prepare_user(&user, service.spec.user.group, Option::<&str>::None)?;
             }
 
             if service.spec.extra_groups.len() > 0 {
-                handler.create_groups(service.spec.extra_groups.iter().filter(|(_, cfg)| cfg.create).map(|(group, _)| group))?;
-                handler.add_user_to_groups(user, service.spec.extra_groups.iter().map(|(group, _)| group))?;
+                handler.create_groups(service.spec.extra_groups.iter().filter(|(_, cfg)| cfg.create).map(|(group, _)| group.expand_to_cow(instance.constants_by_variant())))?;
+                handler.add_user_to_groups(&user, service.spec.extra_groups.iter().map(|(group, _)| group.expand_to_cow(instance.constants_by_variant())))?;
             }
         }
 

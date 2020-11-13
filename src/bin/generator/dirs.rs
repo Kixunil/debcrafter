@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use debcrafter::{PackageInstance};
 use crate::codegen::{LazyCreateBuilder};
+use debcrafter::postinst::Package;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
@@ -12,7 +13,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     };
 
     for dir in additional_dirs {
-        writeln!(out, "{}", dir)?;
+        writeln!(out, "{}", dir.expand(instance.constants_by_variant()))?;
     }
 
     Ok(())

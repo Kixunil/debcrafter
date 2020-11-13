@@ -12,11 +12,12 @@ pub fn generate(instance: &PackageInstance, source_root: &Path) -> io::Result<()
     config_dir.push("etc");
     config_dir.push(&*instance.config_sub_dir());
     for (file_name, conf) in instance.config() {
+        let file_name = file_name.expand_to_cow(instance.constants_by_variant());
         if let ConfType::Static { content, internal } = &conf.conf_type {
             let file_path = if *internal {
-                share_dir_internal.join(file_name)
+                share_dir_internal.join(&*file_name)
             } else {
-                config_dir.join(file_name)
+                config_dir.join(&*file_name)
             };
             fs::create_dir_all(file_path.parent().expect("file_path doesn't have a parent"))?;
 

@@ -69,7 +69,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
             None
         })
         .flatten()
-        .chain(instance.depends.iter().map(Into::into))
+        .chain(instance.depends.iter().map(|dependency| dependency.expand_to_cow(instance.constants_by_variant())))
         .chain(main_dep.map(|main_dep| if external {
             main_dep
         } else {
@@ -94,8 +94,8 @@ fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: 
     Ok(())
 }
 
-pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str) -> io::Result<()> {
-    use debcrafter::BoolOrVecString;
+pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str, buildsystem: Option<&str>) -> io::Result<()> {
+    use debcrafter::BoolOrVecTemplateString;
 
     let mut out = out.finalize();
 
@@ -111,31 +111,36 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
     for dep in calculate_dependencies(instance, upstream_version) {
         write!(out, "{},\n         ", dep)?;
     }
-    writeln!(out, "${{misc:Depends}}")?;
+    write!(out, "${{misc:Depends}} ${{shlibs:Depends}}")?;
+    if let Some("pybuild") = buildsystem {
+        write!(out, "${{python3:Depends}}")?;
+    }
 
-    write_deps(&mut out, "Suggests", instance.suggests.iter().chain(instance.extended_by))?;
-    write_deps(&mut out, "Provides", instance.provides)?;
-    write_deps(&mut out, "Conflicts", instance.conflicts)?;
+    writeln!(out)?;
+
+    write_deps(&mut out, "Suggests", instance.suggests.iter().chain(instance.extended_by).map(|suggested| suggested.expand(instance.constants_by_variant())))?;
+    write_deps(&mut out, "Provides", instance.provides.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
+    write_deps(&mut out, "Conflicts", instance.conflicts.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
 
     if let PackageSpec::ConfExt(confext) = &instance.spec {
         if confext.depends_on_extended {
-            write_deps(&mut out, "Recommends", instance.recommends)?;
+            write_deps(&mut out, "Recommends", instance.recommends.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
         } else {
-            write_deps(&mut out, "Recommends", std::iter::once(&*confext.extends.expand_to_cow(instance.variant())).chain(instance.recommends.iter().map(AsRef::as_ref)))?;
+            write_deps(&mut out, "Recommends", std::iter::once(confext.extends.expand_to_cow(instance.variant())).chain(instance.recommends.iter().map(|suggested| suggested.expand_to_cow(instance.constants_by_variant()))))?;
         }
         writeln!(out, "Enhances: {}", confext.extends.expand_to_cow(instance.variant()))?;
         match &confext.replaces {
-            BoolOrVecString::Bool(false) => (),
-            BoolOrVecString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends.expand_to_cow(instance.variant()))?,
-            BoolOrVecString::VecString(replaces) => write_deps(&mut out, "Replaces", replaces)?,
+            BoolOrVecTemplateString::Bool(false) => (),
+            BoolOrVecTemplateString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends.expand_to_cow(instance.variant()))?,
+            BoolOrVecTemplateString::VecString(replaces) => write_deps(&mut out, "Replaces", replaces.iter().map(|replace| replace.expand(instance.constants_by_variant())))?,
         }
     } else {
-        write_deps(&mut out, "Recommends", instance.recommends)?;
+        write_deps(&mut out, "Recommends", instance.recommends.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
     }
     if let Some(summary) = instance.spec.summary() {
-        writeln!(out, "Description: {}", summary)?;
+        writeln!(out, "Description: {}", summary.expand(instance.constants_by_variant()))?;
         if let Some(long) = instance.spec.long_doc() {
-            crate::codegen::paragraph(&mut out, long)?;
+            crate::codegen::paragraph(&mut out, &long.expand_to_cow(instance.constants_by_variant()))?;
         }
     }
     Ok(())
