@@ -393,6 +393,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                     }
                 }
 
+                let mut hvars_accum = Set::new();
                 for (var, var_spec) in hvars {
                     if let HiddenVarVal::Template(template) = &var_spec.val {
                         for var in crate::template::parse(template).vars() {
@@ -409,6 +410,8 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                                         } else {
                                             None
                                         })
+                                        .map(drop)
+                                        .or_else(|| hvars_accum.get(var_name).map(drop))
                                         .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
                                 } else {
                                     let v_pkg_name = VPackageName::try_from(String::from(pkg_name))
@@ -444,6 +447,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                             },
                         });
                     }
+                    hvars_accum.insert(&**var);
                 }
 
                 for (var, var_spec) in fvars {

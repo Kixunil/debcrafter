@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use template::TemplateString;
+use linked_hash_map::LinkedHashMap;
 
 pub mod postinst;
 pub mod template;
@@ -564,7 +565,7 @@ pub enum ConfType {
         #[serde(default)]
         evars: Map<VPackageName, Map<String, ExternalVar>>,
         #[serde(default)]
-        hvars: Map<String, HiddenVar>,
+        hvars: LinkedHashMap<String, HiddenVar>,
         #[serde(default)]
         fvars: Map<String, FileVar>,
         cat_dir: Option<String>,
