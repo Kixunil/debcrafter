@@ -1,9 +1,11 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup};
+use crate::types::NonEmptyMap;
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
+use crate::template::TemplateString;
 
 #[derive(Clone)]
 pub struct Config<'a> {
@@ -74,6 +76,7 @@ pub trait Package<'a>: PackageConfig {
     fn service_name(&self) -> Option<&str>;
     fn service_user(&self) -> Option<Cow<'_, str>>;
     fn service_group(&self) -> Option<Cow<'_, str>>;
+    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>>;
     fn get_include(&self, name: &VPackageName) -> Option<&super::Package>;
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
@@ -117,6 +120,10 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
         } else {
             None
         }
+    }
+
+    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>> {
+        NonEmptyMap::from_map(&self.spec.extra_groups)
     }
 
     fn get_include(&self, name: &VPackageName) -> Option<&super::Package> {
@@ -193,11 +200,52 @@ impl<'a> Package<'a> for PackageInstance<'a> {
     }
 
     fn service_user(&self) -> Option<Cow<'_, str>> {
-        self.as_service().map(|service| service.user_name())
+        self.as_service().map(|service| service.user_name()).or_else(|| if let PackageSpec::ConfExt(confext) = &self.spec {
+            if confext.depends_on_extended && !confext.external {
+                self
+                    .get_include(&confext.extends)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
+                    .instantiate(self.variant, None)
+                    .service_user()
+                    .map(|user| Cow::Owned(String::from(user)))
+            } else {
+                None
+            }
+        } else {
+            None
+        })
     }
 
     fn service_group(&self) -> Option<Cow<'_, str>> {
-        self.as_service().and_then(|service| ServiceInstance::service_group(&service))
+        self.as_service().and_then(|service| ServiceInstance::service_group(&service)).or_else(|| if let PackageSpec::ConfExt(confext) = &self.spec {
+            if confext.depends_on_extended && !confext.external {
+                self
+                    .get_include(&confext.extends)
+                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
+                    .instantiate(self.variant, None)
+                    .service_group()
+                    .map(|group| Cow::Owned(String::from(group)))
+            } else {
+                None
+            }
+        } else {
+            None
+        })
+    }
+
+    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>> {
+        match &self.spec {
+            PackageSpec::Service(service) => NonEmptyMap::from_map(&service.extra_groups),
+            PackageSpec::ConfExt(confext) => {
+                let groups = NonEmptyMap::from_map(&confext.extra_groups);
+                if groups.is_some() && !confext.depends_on_extended {
+                    // TODO: implement permission system and check if groups exist as well
+                    panic!("The configuration extension {} doesn't depent on extended package yet it wants to add the user to a group. The user is not guaranteed to exist.", self.name);
+                }
+                groups
+            },
+            PackageSpec::Base(_) => None,
+        }
     }
 
     fn get_include(&self, name: &VPackageName) -> Option<&super::Package> {
@@ -641,6 +689,13 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
     Ok(())
 }
 
+pub fn handle_groups<T: HandlePostinst>(handler: &mut T, user: &str, extra_groups: &NonEmptyMap<TemplateString, ExtraGroup, &Map<TemplateString, ExtraGroup>>, constants_by_variant: &ConstantsByVariant) -> Result<(), <T as HandlePostinst>::Error> {
+    handler.create_groups(extra_groups.iter().filter(|(_, cfg)| cfg.create).map(|(group, _)| group.expand_to_cow(constants_by_variant)))?;
+    handler.add_user_to_groups(user, extra_groups.iter().map(|(group, _)| group.expand_to_cow(constants_by_variant)))?;
+
+    Ok(())
+}
+
 pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInstance) -> Result<(), <T as HandlePostinst>::Error> {
     if let Some(service) = instance.as_service() {
         if let Some(create_user) = &service.spec.user.create {
@@ -650,13 +705,16 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
             } else {
                 handler.prepare_user(&user, service.spec.user.group, Option::<&str>::None)?;
             }
-
-            if service.spec.extra_groups.len() > 0 {
-                handler.create_groups(service.spec.extra_groups.iter().filter(|(_, cfg)| cfg.create).map(|(group, _)| group.expand_to_cow(instance.constants_by_variant())))?;
-                handler.add_user_to_groups(&user, service.spec.extra_groups.iter().map(|(group, _)| group.expand_to_cow(instance.constants_by_variant())))?;
-            }
         }
+    }
 
+    match (instance.extra_groups(), instance.service_user()) {
+        (None, _) => (),
+        (Some(_), None) => panic!("Can't set extra_groups in package {}, it is supported only for services or extension packages that extend services", instance.name),
+        (Some(extra_groups), Some(user_name)) => handle_groups(&mut handler, &user_name, &extra_groups, &instance.constants_by_variant())?,
+    }
+
+    if let Some(service) = instance.as_service() {
         assert!(service.spec.databases.len() < 2, "More than one database not supported yet");
         if let Some((db_type, db_config)) = service.spec.databases.iter().next() {
             handler.prepare_database(&service, &db_type, &db_config)?;

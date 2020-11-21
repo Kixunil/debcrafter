@@ -8,6 +8,7 @@ use linked_hash_map::LinkedHashMap;
 
 pub mod postinst;
 pub mod template;
+pub mod types;
 
 pub type Map<K, V> = std::collections::BTreeMap<K, V>;
 pub type Set<T> = std::collections::BTreeSet<T>;
@@ -518,6 +519,8 @@ pub struct ConfExtPackageSpec {
     pub alternatives: Map<String, Alternative>,
     #[serde(default)]
     pub patch_foreign: Map<String, String>,
+    #[serde(default)]
+    pub extra_groups: Map<TemplateString, ExtraGroup>,
 }
 
 #[derive(Deserialize)]
