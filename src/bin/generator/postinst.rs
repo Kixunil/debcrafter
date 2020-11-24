@@ -1,5 +1,6 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr, VPackageName};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr};
+use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant};
