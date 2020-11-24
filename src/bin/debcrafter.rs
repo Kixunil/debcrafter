@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use codegen::{LazyCreateBuilder};
 use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
-use debcrafter::types::VPackageName;
+use debcrafter::types::{VPackageName, Variant};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
 use either::Either;
@@ -29,7 +29,7 @@ pub struct Source {
     #[serde(default)]
     pub autoconf_params: Vec<String>,
     #[serde(default)]
-    pub variants: Set<String>,
+    pub variants: Set<Variant>,
     pub packages: Set<VPackageName>,
     #[serde(default)]
     pub skip_debug_symbols: bool,

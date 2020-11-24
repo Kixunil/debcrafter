@@ -32,10 +32,10 @@ impl VPackageName {
         path
     }
 
-    pub fn expand_to_cow(&self, variant: Option<&str>) -> Cow<'_, str> {
+    pub fn expand_to_cow(&self, variant: Option<&super::Variant>) -> Cow<'_, str> {
         match (variant, self.0.ends_with(PKG_NAME_VARIANT_SUFFIX)) {
             (None, true) => panic!("can't expand {}: missing variant", self.0),
-            (Some(variant), true) => Cow::Owned([self.base(), variant].join("-")),
+            (Some(variant), true) => Cow::Owned([self.base(), variant.as_str()].join("-")),
             // We intentionally allow NOT expanding.
             // Not all packages need to be expanded. The validity will be checked anyway.
             (Some(_), false) | (None, false) => Cow::Borrowed(&self.0),

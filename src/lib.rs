@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use template::TemplateString;
 use linked_hash_map::LinkedHashMap;
-use crate::types::VPackageName;
+use crate::types::{VPackageName, Variant};
 
 pub mod postinst;
 pub mod template;
@@ -50,7 +50,7 @@ impl PackageConfig for ServicePackageSpec {
 pub struct Package {
     pub name: VPackageName,
     #[serde(default)]
-    pub map_variants: Map<String, Map<String, String>>,
+    pub map_variants: Map<String, Map<Variant, String>>,
     #[serde(flatten)]
     pub spec: PackageSpec,
     #[serde(default)]
@@ -135,7 +135,7 @@ impl Package {
         result
     }
 
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a str>, includes: Option<&'a Map<VPackageName, Package>>) -> PackageInstance<'a> {
+    pub fn instantiate<'a>(&'a self, variant: Option<&'a Variant>, includes: Option<&'a Map<VPackageName, Package>>) -> PackageInstance<'a> {
         let name = self.name.expand_to_cow(variant);
 
         PackageInstance {
@@ -676,8 +676,8 @@ pub struct Alternative {
 
 pub struct PackageInstance<'a> {
     pub name: Cow<'a, str>,
-    pub variant: Option<&'a str>,
-    pub map_variants: &'a Map<String, Map<String, String>>,
+    pub variant: Option<&'a Variant>,
+    pub map_variants: &'a Map<String, Map<Variant, String>>,
     pub spec: &'a PackageSpec,
     pub includes: Option<&'a Map<VPackageName, Package>>,
     pub depends: &'a Set<TemplateString>,
@@ -708,8 +708,8 @@ impl<'a> PackageInstance<'a> {
 
 pub struct ServiceInstance<'a> {
     pub name: &'a Cow<'a, str>,
-    pub variant: Option<&'a str>,
-    pub map_variants: &'a Map<String, Map<String, String>>,
+    pub variant: Option<&'a Variant>,
+    pub map_variants: &'a Map<String, Map<Variant, String>>,
     pub spec: &'a ServicePackageSpec,
     pub includes: Option<&'a Map<VPackageName, Package>>,
 }

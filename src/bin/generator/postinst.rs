@@ -184,7 +184,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
                     let pos = var.find('/').expect("unreachable");
                     let pkg_name = VPackageName::try_from(var[..pos].to_owned()).expect("invalid package name");
                     let var_name = &var[(pos + 1)..];
-                    write!(self.out, "${{CONFIG[{}/{}]}}", pkg_name.expand_to_cow(constants.get("variant")), var_name)?;
+                    write!(self.out, "${{CONFIG[{}/{}]}}", pkg_name.expand_to_cow(constants.get_variant()), var_name)?;
                 },
                 Component::Variable(var) => write!(self.out, "{}", constants.get(var).unwrap_or_else(|| panic!("constant {} not found for variant", var)))?,
             }

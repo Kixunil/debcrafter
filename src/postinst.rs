@@ -1,5 +1,5 @@
 use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup};
-use crate::types::NonEmptyMap;
+use crate::types::{NonEmptyMap, Variant};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
@@ -53,14 +53,20 @@ pub trait HandlePostinst: Sized {
 }
 
 pub struct ConstantsByVariant<'a> {
-    variant: Option<&'a str>,
-    constants: &'a Map<String, Map<String, String>>,
+    variant: Option<&'a Variant>,
+    constants: &'a Map<String, Map<Variant, String>>,
+}
+
+impl<'a> ConstantsByVariant<'a> {
+    pub fn get_variant(&self) -> Option<&'a Variant> {
+        self.variant
+    }
 }
 
 impl<'a> crate::template::Query for ConstantsByVariant<'a> {
     fn get(&self, key: &str) -> Option<&str> {
         if key == "variant" {
-            self.variant
+            self.variant.map(Variant::as_str)
         } else {
             self.constants.get(key)?.get(self.variant?).map(AsRef::as_ref)
         }
@@ -69,7 +75,7 @@ impl<'a> crate::template::Query for ConstantsByVariant<'a> {
 
 pub trait Package<'a>: PackageConfig {
     fn config_pkg_name(&self) -> &str;
-    fn variant(&self) -> Option<&str>;
+    fn variant(&self) -> Option<&Variant>;
     fn constants_by_variant(&self) -> ConstantsByVariant<'_>;
     fn config_sub_dir(&self) -> Cow<'a, str>;
     fn internal_config_sub_dir(&self) -> Cow<'a, str>;
@@ -87,7 +93,7 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
         &self.name
     }
 
-    fn variant(&self) -> Option<&str> {
+    fn variant(&self) -> Option<&Variant> {
         self.variant
     }
 
@@ -144,7 +150,7 @@ impl<'a> Package<'a> for PackageInstance<'a> {
         &self.name
     }
 
-    fn variant(&self) -> Option<&str> {
+    fn variant(&self) -> Option<&Variant> {
         self.variant
     }
 
