@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr, Database};
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
@@ -89,7 +89,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
-    fn prepare_database(&mut self, pkg: &ServiceInstance, db_type: &str, _db_config: &DbConfig) -> Result<(), Self::Error> {
+    fn prepare_database(&mut self, pkg: &ServiceInstance, db_type: &Database, _db_config: &DbConfig) -> Result<(), Self::Error> {
         // TODO: FS-based databases (sqlite)
         if let Some(conf_d) = &pkg.spec.conf_d {
             writeln!(self.out, "mkdir -p /etc/{}/{}", pkg.name, conf_d.name)?;
@@ -108,7 +108,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             writeln!(self.out, "dbc_generate_include_owner={}:root", pkg.user_name())?;
             writeln!(self.out, "dbc_generate_include_perms=460")?;
         }
-        writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", db_type)?;
+        writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", db_type.lib_name())?;
         writeln!(self.out, "dbc_go {} \"$@\"", pkg.name)?;
         Ok(())
     }

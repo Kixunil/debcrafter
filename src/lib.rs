@@ -292,6 +292,43 @@ impl fmt::Display for MigrationVersionError {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
+pub enum Database {
+    #[serde(rename = "pgsql")]
+    Postgres,
+    #[serde(rename = "mysql")]
+    MySQL,
+}
+
+impl Database {
+    pub fn dependency(&self) -> &'static str {
+        match self {
+            Database::Postgres => "postgresql",
+            Database::MySQL => "default-mysql-server",
+        }
+    }
+
+    pub fn dbconfig_dependency(&self) -> &'static str {
+        match self {
+            Database::Postgres => "pgsql",
+            Database::MySQL => "mysql",
+        }
+    }
+
+    pub fn lib_name(&self) -> &'static str {
+        match self {
+            Database::Postgres => "pgsql",
+            Database::MySQL => "mysql",
+        }
+    }
+
+    pub fn dbconfig_db_type(&self) -> &'static str {
+        match self {
+            Database::Postgres => "pgsql",
+            Database::MySQL => "mysql",
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct DbConfig {
@@ -313,7 +350,7 @@ pub struct BasePackageSpec {
     #[serde(default)]
     pub long_doc: Option<TemplateString>,
     #[serde(default)]
-    pub databases: Map<String, DbConfig>,
+    pub databases: Map<Database, DbConfig>,
     #[serde(default)]
     pub add_files: Vec<TemplateString>,
     #[serde(default)]
@@ -371,7 +408,7 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub long_doc: Option<TemplateString>,
     #[serde(default)]
-    pub databases: Map<String, DbConfig>,
+    pub databases: Map<Database, DbConfig>,
     #[serde(default)]
     pub extra_groups: Map<TemplateString, ExtraGroup>,
     #[serde(default)]

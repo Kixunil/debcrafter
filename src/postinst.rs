@@ -1,4 +1,4 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup, Database};
 use crate::types::{NonEmptyMap, Variant};
 use std::fmt;
 use std::borrow::Cow;
@@ -25,7 +25,7 @@ pub trait HandlePostinst: Sized {
     fn prepare_user<T: fmt::Display>(&mut self, name: &str, group: bool, home: Option<T>) -> Result<(), Self::Error>;
     fn add_user_to_groups<I>(&mut self, user: &str, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
     fn create_groups<I>(&mut self, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
-    fn prepare_database(&mut self, instance: &ServiceInstance, name: &str, config: &DbConfig) -> Result<(), Self::Error>;
+    fn prepare_database(&mut self, instance: &ServiceInstance, name: &Database, config: &DbConfig) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn finish_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;

@@ -15,18 +15,14 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         PackageSpec::Service(service) => {
             let extra = if service.databases.len() > 0 {
                 let mut databases = String::new();
-                let sum = service.databases.iter().map(|(db, _)| db.len()).sum::<usize>();
+                let sum = service.databases.iter().map(|(db, _)| db.dbconfig_dependency().len()).sum::<usize>();
                 let mut dbconfig = String::with_capacity(sum + service.databases.len() * (PREFIX.len() + DELIMITER.len()) + NO_THANKS.len());
-                for (db_name, _) in &service.databases {
+                for (db, _) in &service.databases {
                     dbconfig.push_str(PREFIX);
-                    dbconfig.push_str(db_name);
+                    dbconfig.push_str(db.dbconfig_dependency());
                     dbconfig.push_str(DELIMITER);
 
-                    let db_dep = match &**db_name {
-                        "pgsql" => "postgresql",
-                        "mysql" => "default-mysql-server",
-                        x => panic!("Unsupported database: {}", x),
-                    };
+                    let db_dep = db.dependency();
 
                     if databases.len() > 0 {
                         databases.push_str(DELIMITER);
