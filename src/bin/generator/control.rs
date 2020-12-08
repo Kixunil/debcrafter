@@ -100,7 +100,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
     writeln!(out, "Priority: optional")?;
     let architecture = match &instance.spec {
         PackageSpec::Base(base) => &base.architecture,
-        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => "all",
+        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => &debcrafter::Architecture::All,
     };
     writeln!(out, "Architecture: {}", architecture)?;
     write!(out, "Depends: ")?;

@@ -341,8 +341,26 @@ pub struct ExtraGroup {
 }
 
 #[derive(Deserialize)]
+pub enum Architecture {
+    #[serde(rename = "any")]
+    Any,
+    #[serde(rename = "all")]
+    All,
+}
+
+impl fmt::Display for Architecture {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Architecture::Any => write!(f, "any"),
+            Architecture::All => write!(f, "all"),
+        }
+    }
+}
+
+
+#[derive(Deserialize)]
 pub struct BasePackageSpec {
-    pub architecture: String,
+    pub architecture: Architecture,
     #[serde(default)]
     pub config: Map<TemplateString, Config>,
     #[serde(default)]
