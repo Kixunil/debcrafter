@@ -46,6 +46,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         write_kv_opt(&mut out, "Wants", instance.spec.wants.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
         write_kv_opt(&mut out, "BindsTo", instance.spec.binds_to.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
         write_kv_opt(&mut out, "PartOf", instance.spec.part_of.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
+        write_kv_opt(&mut out, "ConditionPathExists", instance.spec.condition_path_exists.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
         if instance.spec.refuse_manual_start {
             writeln!(out, "RefuseManualStart=true")?;
         }

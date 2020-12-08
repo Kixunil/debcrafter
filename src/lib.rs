@@ -396,6 +396,8 @@ pub struct ServicePackageSpec {
     #[serde(default)]
     pub config: Map<TemplateString, Config>,
     #[serde(default)]
+    pub condition_path_exists: Option<TemplateString>,
+    #[serde(default)]
     pub service_type: Option<String>,
     #[serde(default)]
     pub exec_stop: Option<String>,
