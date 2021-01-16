@@ -302,8 +302,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 
     fn create_tree(&mut self, path: &str) -> Result<(), Self::Error> {
-        writeln!(self.out, "mkdir -p \"{}\"", path)?;
-        writeln!(self.out, "chmod 750 \"{}\"", path)
+        writeln!(self.out, "mkdir -m 750 -p \"{}\"", path)
     }
 
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error> {
