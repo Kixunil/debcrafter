@@ -599,8 +599,8 @@ pub struct GeneratedFile {
 #[derive(Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum GeneratedType {
-    File(String),
-    Dir(String),
+    File(TemplateString),
+    Dir(TemplateString),
 }
 
 #[derive(Deserialize, Eq, PartialEq)]

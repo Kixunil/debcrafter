@@ -331,17 +331,15 @@ fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T
         let path = match &generated.ty {
             GeneratedType::File(path) => path,
             GeneratedType::Dir(path) => path,
-        };
+        }
+        .expand_to_cow(package.constants_by_variant());
         let path = if path.starts_with('/') {
-            Cow::<str>::Borrowed(&path)
+            path
         } else {
             Cow::<str>::Owned(format!("/etc/{}/{}", package.config_sub_dir(), path))
         };
-        if let Some(pos) = path.rfind('/') {
-            handler.create_tree(&path[..pos])?;
-        } else {
-            handler.create_tree(&path)?;
-        }
+        let last_slash_pos = path.rfind('/').expect("error: entered unreachable code: path always contains a slash");
+        handler.create_tree(&path[..last_slash_pos])?;
         triggers.insert(path);
     }
     handler.postprocess_conf_file(postprocess.command.iter().map(|arg| arg.expand(package.constants_by_variant())))?;

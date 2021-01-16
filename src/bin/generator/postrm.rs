@@ -20,8 +20,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                         GeneratedType::File(path) => (path, false),
                         GeneratedType::Dir(path) => (path, true),
                     };
+                    let path = path.expand_to_cow(instance.constants_by_variant());
                     let path = if path.starts_with('/') {
-                        Cow::<str>::Borrowed(&path)
+                        path
                     } else {
                         Cow::<str>::Owned(format!("/etc/{}/{}", instance.config_sub_dir(), path))
                     };
