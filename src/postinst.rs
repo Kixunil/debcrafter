@@ -19,13 +19,23 @@ pub struct Config<'a> {
     pub extension: bool,
 }
 
+pub struct CreateDbRequest<'a> {
+    pub pkg_name: &'a str,
+    pub db_type: &'a Database,
+    pub config_path: &'a str,
+    pub config_mode: &'a str,
+    pub config_owner: &'a str,
+    pub config_group: &'a str,
+    pub config_template: &'a str,
+}
+
 pub trait HandlePostinst: Sized {
     type Error: fmt::Debug + fmt::Display;
 
     fn prepare_user<T: fmt::Display>(&mut self, name: &str, group: bool, home: Option<T>) -> Result<(), Self::Error>;
     fn add_user_to_groups<I>(&mut self, user: &str, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
     fn create_groups<I>(&mut self, groups: I) -> Result<(), Self::Error> where I: IntoIterator, <I as IntoIterator>::Item: AsRef<str>;
-    fn prepare_database(&mut self, instance: &ServiceInstance, name: &Database, config: &DbConfig) -> Result<(), Self::Error>;
+    fn prepare_database(&mut self, request: CreateDbRequest<'_>) -> Result<(), Self::Error>;
     fn prepare_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn finish_config(&mut self, config: &Config) -> Result<(), Self::Error>;
     fn fetch_var(&mut self, config: &Config, package: &str, name: &str) -> Result<(), Self::Error>;
@@ -86,6 +96,7 @@ pub trait Package<'a>: PackageConfig {
     fn get_include(&self, name: &VPackageName) -> Option<&super::Package>;
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
+    fn databases(&self) -> &Map<Database, DbConfig>;
 }
 
 impl<'a> Package<'a> for ServiceInstance<'a> {
@@ -142,6 +153,10 @@ impl<'a> Package<'a> for ServiceInstance<'a> {
 
     fn conf_dir(&self) -> Option<&str> {
         self.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref())
+    }
+
+    fn databases(&self) -> &Map<Database, DbConfig> {
+        &self.spec.databases
     }
 }
 
@@ -268,6 +283,14 @@ impl<'a> Package<'a> for PackageInstance<'a> {
 
     fn conf_dir(&self) -> Option<&str> {
         self.as_service().and_then(|service| service.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref()))
+    }
+
+    fn databases(&self) -> &Map<Database, DbConfig> {
+        match self.spec {
+            PackageSpec::Base(base) => &base.databases,
+            PackageSpec::Service(service) => &service.databases,
+            PackageSpec::ConfExt(conf_ext) => &conf_ext.databases,
+        }
     }
 }
 
@@ -718,11 +741,50 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
         (Some(extra_groups), Some(user_name)) => handle_groups(&mut handler, &user_name, &extra_groups, &instance.constants_by_variant())?,
     }
 
-    if let Some(service) = instance.as_service() {
-        assert!(service.spec.databases.len() < 2, "More than one database not supported yet");
-        if let Some((db_type, db_config)) = service.spec.databases.iter().next() {
-            handler.prepare_database(&service, &db_type, &db_config)?;
-        }
+    let databases = instance.databases();
+    assert!(databases.len() < 2, "More than one database not supported yet");
+    if let Some((db_type, db_config)) = databases.iter().next() {
+        let mut config_mode = "640";
+
+        let config_group = db_config.config_file_group
+            .as_ref()
+            .map(String::as_ref)
+            .map(Cow::Borrowed)
+            .or_else(|| instance.service_group());
+
+        let config_owner = db_config.config_file_owner
+            .as_ref()
+            .map(String::as_ref)
+            .map(Cow::Borrowed)
+            .or_else(|| if config_group.is_none() {
+                // We prefer config files to be owned by root, but being readable is more important
+                let user = instance.service_user();
+                if user.is_some() {
+                    config_mode = "460";
+                }
+                user
+            } else {
+                None
+            })
+            .unwrap_or(Cow::Borrowed("root"));
+
+        let config_group = config_group.unwrap_or(Cow::Borrowed("root"));
+
+        let path = match instance.conf_dir() {
+            Some(dir) => format!("/etc/{}/{}/database", instance.name, dir),
+            None => format!("/etc/{}/database", instance.name),
+        };
+
+        let request = CreateDbRequest {
+            pkg_name: &instance.name,
+            db_type,
+            config_path: &path,
+            config_mode,
+            config_owner: &config_owner,
+            config_group: &config_group,
+            config_template: &db_config.template,
+        };
+        handler.prepare_database(request)?;
     }
 
     let patches = match &instance.spec {

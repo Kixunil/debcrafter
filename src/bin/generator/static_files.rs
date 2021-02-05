@@ -26,14 +26,12 @@ pub fn generate(instance: &PackageInstance, source_root: &Path) -> io::Result<()
         }
     }
 
-    if let Some(service) = instance.as_service() {
-        if let Some((_, db)) = service.spec.databases.iter().next() {
-            let mut output = share_dir.join("dbconfig-common");
-            fs::create_dir_all(&output)?;
-            output.push("template");
-            let mut template_file = fs::File::create(output)?;
-            template_file.write_all(db.template.as_bytes())?;
-        }
+    if let Some((_, db)) = instance.databases().iter().next() {
+        let mut output = share_dir.join("dbconfig-common");
+        fs::create_dir_all(&output)?;
+        output.push("template");
+        let mut template_file = fs::File::create(output)?;
+        template_file.write_all(db.template.as_bytes())?;
     }
 
     Ok(())

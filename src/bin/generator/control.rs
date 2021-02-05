@@ -10,36 +10,37 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
     const DELIMITER: &str = " | ";
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
-    let (main_dep, config, extra, is_service, patch, external) = match &instance.spec {
-        PackageSpec::Base(base) => (None, &base.config, None, false, None, false),
+    let db_deps = if instance.databases().len() > 0 {
+        let mut databases = String::new();
+        let sum = instance.databases().iter().map(|(db, _)| db.dbconfig_dependency().len()).sum::<usize>();
+        let mut dbconfig = String::with_capacity(sum + instance.databases().len() * (PREFIX.len() + DELIMITER.len()) + NO_THANKS.len());
+        for (db, _) in instance.databases() {
+            dbconfig.push_str(PREFIX);
+            dbconfig.push_str(db.dbconfig_dependency());
+            dbconfig.push_str(DELIMITER);
+
+            let db_dep = db.dependency();
+
+            if databases.len() > 0 {
+                databases.push_str(DELIMITER);
+            }
+            databases.push_str(db_dep);
+        }
+        dbconfig.push_str(NO_THANKS);
+        Some(std::iter::once(dbconfig.into()).chain(std::iter::once(Cow::Owned(databases))))
+    } else {
+        None
+    };
+
+    let (main_dep, config, is_service, patch, external) = match &instance.spec {
+        PackageSpec::Base(base) => (None, &base.config, false, None, false),
         PackageSpec::Service(service) => {
-            let extra = if service.databases.len() > 0 {
-                let mut databases = String::new();
-                let sum = service.databases.iter().map(|(db, _)| db.dbconfig_dependency().len()).sum::<usize>();
-                let mut dbconfig = String::with_capacity(sum + service.databases.len() * (PREFIX.len() + DELIMITER.len()) + NO_THANKS.len());
-                for (db, _) in &service.databases {
-                    dbconfig.push_str(PREFIX);
-                    dbconfig.push_str(db.dbconfig_dependency());
-                    dbconfig.push_str(DELIMITER);
-
-                    let db_dep = db.dependency();
-
-                    if databases.len() > 0 {
-                        databases.push_str(DELIMITER);
-                    }
-                    databases.push_str(db_dep);
-                }
-                dbconfig.push_str(NO_THANKS);
-                Some(std::iter::once(dbconfig.into()).chain(std::iter::once(Cow::Owned(databases))))
-            } else {
-                None
-            };
-            (Some(Cow::Borrowed(&*service.bin_package)), &service.config, extra, true, service.min_patch.as_ref(), false)
+            (Some(Cow::Borrowed(&*service.bin_package)), &service.config, true, service.min_patch.as_ref(), false)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(confext.extends.expand_to_cow(instance.variant())), &confext.config, None, false, confext.min_patch.as_ref(), confext.external)
+            (Some(confext.extends.expand_to_cow(instance.variant())), &confext.config, false, confext.min_patch.as_ref(), confext.external)
         } else {
-            (None, &confext.config, None, false, None, confext.external)
+            (None, &confext.config, false, None, confext.external)
         },
     };
     let has_patches = !match &instance.spec {
@@ -71,7 +72,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         } else {
             Cow::Owned(patch.map(|patch| format!("{} (>= {}-{})", main_dep, upstream_version, patch)).unwrap_or_else(|| format!("{} (>= {})", main_dep, upstream_version)))
         }))
-        .chain(extra.into_iter().flatten())
+        .chain(db_deps.into_iter().flatten())
         .chain(patch_deps)
         .chain(systemd_deps)
         // This avoids duplicates

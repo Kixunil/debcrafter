@@ -333,6 +333,10 @@ impl Database {
 #[derive(Deserialize)]
 pub struct DbConfig {
     pub template: String,
+    #[serde(default)]
+    pub config_file_owner: Option<String>,
+    #[serde(default)]
+    pub config_file_group: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -503,6 +507,8 @@ pub struct ConfExtPackageSpec {
     pub summary: Option<TemplateString>,
     #[serde(default)]
     pub long_doc: Option<TemplateString>,
+    #[serde(default)]
+    pub databases: Map<Database, DbConfig>,
     #[serde(default)]
     pub config: Map<TemplateString, Config>,
     #[serde(default)]

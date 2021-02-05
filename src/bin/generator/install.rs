@@ -16,10 +16,8 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
-    if let Some(service) = instance.as_service() {
-        if service.spec.databases.len() > 0{
-            writeln!(out, "{}/usr/share/{}/dbconfig-common/template /usr/share/{}/dbconfig-common", instance.name, instance.internal_config_sub_dir(), instance.internal_config_sub_dir())?;
-        }
+    if !instance.databases().is_empty() {
+        writeln!(out, "{}/usr/share/{}/dbconfig-common/template /usr/share/{}/dbconfig-common", instance.name, instance.internal_config_sub_dir(), instance.internal_config_sub_dir())?;
     }
 
     let additional_files = match &instance.spec {

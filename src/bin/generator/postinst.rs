@@ -1,9 +1,9 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, DbConfig, FileVar, DirRepr, Database};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, FileVar, DirRepr};
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
-use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant};
+use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant, CreateDbRequest};
 use std::convert::TryFrom;
 
 struct ShellEscaper<W: fmt::Write>(W);
@@ -89,27 +89,15 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         Ok(())
     }
 
-    fn prepare_database(&mut self, pkg: &ServiceInstance, db_type: &Database, _db_config: &DbConfig) -> Result<(), Self::Error> {
-        // TODO: FS-based databases (sqlite)
-        if let Some(conf_d) = &pkg.spec.conf_d {
-            writeln!(self.out, "mkdir -p /etc/{}/{}", pkg.name, conf_d.name)?;
-            writeln!(self.out, "dbc_generate_include=template:/etc/{}/{}/database", pkg.name, conf_d.name)?;
-        } else {
-            writeln!(self.out, "mkdir -p /etc/{}", pkg.name)?;
-            writeln!(self.out, "dbc_generate_include=template:/etc/{}/database", pkg.name)?;
-        }
+    fn prepare_database(&mut self, request: CreateDbRequest) -> Result<(), Self::Error> {
+        writeln!(self.out, "mkdir -p `dirname {}`", request.config_path)?;
+        writeln!(self.out, "dbc_generate_include=template:{}", request.config_path)?;
         // There doesn't seem to be a standardized path for templates, so we made up one
-        writeln!(self.out, "dbc_generate_include_args=\"-o template_infile=/usr/share/{}/dbconfig-common/template\"", pkg.name)?;
-        // We prefer config files to be owned by root, but being readable is more important
-        if pkg.spec.user.group {
-            writeln!(self.out, "dbc_generate_include_owner=root:{}", pkg.user_name())?;
-            writeln!(self.out, "dbc_generate_include_perms=640")?;
-        } else {
-            writeln!(self.out, "dbc_generate_include_owner={}:root", pkg.user_name())?;
-            writeln!(self.out, "dbc_generate_include_perms=460")?;
-        }
-        writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", db_type.lib_name())?;
-        writeln!(self.out, "dbc_go {} \"$@\"", pkg.name)?;
+        writeln!(self.out, "dbc_generate_include_args=\"-o template_infile=/usr/share/{}/dbconfig-common/template\"", request.pkg_name)?;
+        writeln!(self.out, "dbc_generate_include_owner={}:{}", request.config_owner, request.config_group)?;
+        writeln!(self.out, "dbc_generate_include_perms={}", request.config_mode)?;
+        writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", request.db_type.lib_name())?;
+        writeln!(self.out, "dbc_go {} \"$@\"", request.pkg_name)?;
         Ok(())
     }
 
