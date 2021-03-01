@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, FileVar, DirRepr};
+use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType, FileVar, DirRepr, Map, Migration, MigrationVersion};
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
@@ -399,6 +399,29 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             write!(self.out, " {}", DisplayEscaped(arg))?;
         }
         writeln!(self.out)?;
+        Ok(())
+    }
+
+    fn finalize_migrations(&mut self, migrations: &Map<MigrationVersion, Migration>, constatnts: ConstantsByVariant<'_>) -> Result<(), Self::Error> {
+        writeln!(self.out, "if [ \"$1\" = \"configure\" ] && dpkg --validate-version \"$2\" &>/dev/null;")?;
+        writeln!(self.out, "then")?;
+        for (version, migration) in migrations {
+            if let Some(migration) = &migration.postinst_finish {
+                writeln!(self.out, "\tif dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
+                writeln!(self.out, "\tthen")?;
+                let migration = migration.expand_to_cow(&constatnts);
+                for line in migration.trim().split('\n') {
+                    if line.is_empty() {
+                        writeln!(self.out)?;
+                    } else {
+                        writeln!(self.out, "\t\t{}", line)?;
+                    }
+                }
+                writeln!(self.out, "\tfi")?;
+                writeln!(self.out)?;
+            }
+        }
+        writeln!(self.out, "fi")?;
         Ok(())
     }
 

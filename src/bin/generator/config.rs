@@ -11,22 +11,24 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
 ";
     let mut out = out.set_header(header).finalize();
 
-    if !instance.migrations.is_empty() {
+    if instance.migrations.values().any(|migration| migration.config.is_some()) {
         writeln!(out, "if [ \"$1\" = \"configure\" ] && dpkg --validate-version \"$2\" &>/dev/null;")?;
         writeln!(out, "then")?;
         for (version, migration) in instance.migrations {
-            writeln!(out, "\tif dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
-            writeln!(out, "\tthen")?;
-            let config = migration.config.expand_to_cow(instance.constants_by_variant());
-            for line in config.trim().split('\n') {
-                if line.is_empty() {
-                    writeln!(out)?;
-                } else {
-                    writeln!(out, "\t\t{}", line)?;
+            if let Some(config) = &migration.config {
+                writeln!(out, "\tif dpkg --compare-versions \"$2\" lt '{}';", version.version())?;
+                writeln!(out, "\tthen")?;
+                let config = config.expand_to_cow(instance.constants_by_variant());
+                for line in config.trim().split('\n') {
+                    if line.is_empty() {
+                        writeln!(out)?;
+                    } else {
+                        writeln!(out, "\t\t{}", line)?;
+                    }
                 }
+                writeln!(out, "\tfi")?;
+                writeln!(out)?;
             }
-            writeln!(out, "\tfi")?;
-            writeln!(out)?;
         }
         writeln!(out, "fi")?;
     }

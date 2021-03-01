@@ -200,7 +200,8 @@ impl PackageConfig for PackageSpec {
 
 #[derive(Deserialize)]
 pub struct Migration {
-    pub config: TemplateString,
+    pub config: Option<TemplateString>,
+    pub postinst_finish: Option<TemplateString>,
 }
 
 #[derive(Clone, Eq, PartialEq, Deserialize)]

@@ -1,4 +1,4 @@
-use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup, Database};
+use crate::{PackageInstance, ServiceInstance, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, PackageConfig, DbConfig, FileVar, GeneratedType, Set, Map, VPackageName, ExtraGroup, Database, MigrationVersion, Migration};
 use crate::types::{NonEmptyMap, Variant};
 use std::fmt;
 use std::borrow::Cow;
@@ -59,6 +59,7 @@ pub trait HandlePostinst: Sized {
     fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error>;
     fn create_tree(&mut self, path: &str) -> Result<(), Self::Error>;
     fn create_path(&mut self, config: &Config, var_name: &str, file_type: &FileType, mode: u16, owner: &str, group: &str, only_parent: bool) -> Result<(), Self::Error>;
+    fn finalize_migrations(&mut self, migrations: &Map<MigrationVersion, Migration>, constatnts: ConstantsByVariant<'_>) -> Result<(), Self::Error>;
     fn finish(self) -> Result<(), Self::Error>;
 }
 
@@ -814,6 +815,10 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
         if !service.spec.refuse_manual_start && !service.spec.refuse_manual_stop {
             handler.restart_service_if_needed(&service)?;
         }
+    }
+
+    if instance.migrations.values().any(|migration| migration.postinst_finish.is_some()) {
+        handler.finalize_migrations(&instance.migrations, instance.constants_by_variant())?;
     }
 
     handler.trigger_config_changed(instance)?;
