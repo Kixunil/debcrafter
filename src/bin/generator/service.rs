@@ -90,6 +90,13 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             writeln!(out, "Group={}", instance.user_name())?;
         }
 
+        if !instance.spec.allow_suid_sgid {
+            writeln!(out, "NoNewPrivileges=true")?;
+        }
+        writeln!(out, "ProtectSystem=full")?;
+        writeln!(out, "ProtectHome=true")?;
+        writeln!(out, "PrivateTmp=true")?;
+        writeln!(out, "PrivateDevices=true")?;
         if let Some(runtime_dir) = &instance.spec.runtime_dir {
             writeln!(out, "RuntimeDirectory={}", instance.service_name())?;
             writeln!(out, "RuntimeDirectoryMode={}", runtime_dir.mode)?;

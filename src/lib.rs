@@ -448,6 +448,8 @@ pub struct ServicePackageSpec {
     pub alternatives: Map<String, Alternative>,
     #[serde(default)]
     pub patch_foreign: Map<String, String>,
+    #[serde(default)]
+    pub allow_suid_sgid: bool,
 }
 
 #[derive(Deserialize)]
