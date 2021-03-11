@@ -29,6 +29,16 @@ pub struct CreateDbRequest<'a> {
     pub config_template: &'a str,
 }
 
+pub struct CommandPrivileges<'a> {
+    pub user: &'a str,
+    pub group: &'a str,
+    pub allow_new_privileges: bool,
+}
+
+pub struct CommandEnv<'a> {
+    pub restrict_privileges: Option<CommandPrivileges<'a>>,
+}
+
 pub trait HandlePostinst: Sized {
     type Error: fmt::Debug + fmt::Display;
 
@@ -52,7 +62,7 @@ pub trait HandlePostinst: Sized {
     fn trigger_config_changed(&mut self, instance: &PackageInstance) -> Result<(), Self::Error>;
     fn include_conf_dir<T: fmt::Display>(&mut self, config: &Config, dir: T) -> Result<(), Self::Error>;
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
-    fn postprocess_conf_file<I>(&mut self, command: I) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display;
+    fn run_command<I>(&mut self, command: I, env: &CommandEnv<'_>) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
     fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<crate::Alternative>;
     fn patch_files<A, B, I>(&mut self, pkg_name: &str, patches: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: AsRef<str>;
@@ -366,7 +376,10 @@ fn handle_postprocess<'a, 'b, T: HandlePostinst, P: Package<'a>>(handler: &mut T
         handler.create_tree(&path[..last_slash_pos])?;
         triggers.insert(path);
     }
-    handler.postprocess_conf_file(postprocess.command.iter().map(|arg| arg.expand(package.constants_by_variant())))?;
+    let env = CommandEnv {
+        restrict_privileges: None,
+    };
+    handler.run_command(postprocess.command.iter().map(|arg| arg.expand(package.constants_by_variant())), &env)?;
     Ok(())
 }
 
@@ -822,5 +835,20 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     }
 
     handler.trigger_config_changed(instance)?;
+    if let Some(plug) = instance.plug {
+        let user = plug.run_as_user.expand_to_cow(instance.constants_by_variant());
+        let group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
+        let privileges = CommandPrivileges {
+            user: &user,
+            group: &group,
+            allow_new_privileges: false,
+        };
+
+        let env = CommandEnv {
+            restrict_privileges: Some(privileges),
+        };
+
+        handler.run_command(plug.register_cmd.iter().map(|arg| arg.expand(instance.constants_by_variant())), &env)?;
+    }
     handler.finish()
 }

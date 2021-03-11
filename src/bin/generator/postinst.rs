@@ -3,7 +3,7 @@ use debcrafter::{PackageInstance, ServiceInstance, ConfFormat, VarType, FileType
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
-use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant, CreateDbRequest};
+use debcrafter::postinst::{HandlePostinst, Config, ConstantsByVariant, CreateDbRequest, CommandEnv};
 use std::convert::TryFrom;
 
 struct ShellEscaper<W: fmt::Write>(W);
@@ -21,7 +21,7 @@ impl<W: fmt::Write> fmt::Write for ShellEscaper<W> {
     }
 }
 
-struct DisplayEscaped<D: fmt::Display>(D);
+pub(crate) struct DisplayEscaped<D: fmt::Display>(pub D);
 
 impl<D: fmt::Display> fmt::Display for DisplayEscaped<D> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -391,10 +391,18 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "fi")
     }
 
-    fn postprocess_conf_file<I>(&mut self, command: I) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display {
+    fn run_command<I>(&mut self, command: I, env: &CommandEnv<'_>) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display {
         let mut iter = command.into_iter();
+        write!(self.out, "MAINTSCRIPT_ACTION=\"$1\" MAINTSCRIPT_VERSION=\"$2\" ")?;
+        if let Some(restrictions) = &env.restrict_privileges {
+            write!(self.out, "setpriv --reuid={} --regid={} --init-groups --inh-caps=-all", restrictions.user, restrictions.group)?;
+            if !restrictions.allow_new_privileges {
+                write!(self.out, " --no-new-privs")?;
+            }
+            write!(self.out, " -- ")?;
+        }
         // sanity check
-        write!(self.out, "{}", iter.next().expect("Can't postprocess: missing program name"))?;
+        write!(self.out, "{}", iter.next().expect("Can't run command: missing program name"))?;
         for arg in iter {
             write!(self.out, " {}", DisplayEscaped(arg))?;
         }

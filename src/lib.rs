@@ -46,6 +46,16 @@ impl PackageConfig for ServicePackageSpec {
     }
 }
 
+
+#[derive(Deserialize)]
+pub struct Plug {
+    pub run_as_user: TemplateString,
+    #[serde(default)]
+    pub run_as_group: Option<TemplateString>,
+    pub register_cmd: Vec<TemplateString>,
+    pub unregister_cmd: Vec<TemplateString>,
+}
+
 #[derive(Deserialize)]
 pub struct Package {
     pub name: VPackageName,
@@ -69,6 +79,8 @@ pub struct Package {
     pub extra_triggers: Set<TemplateString>,
     #[serde(default)]
     pub migrations: Map<MigrationVersion, Migration>,
+    #[serde(default)]
+    pub plug: Option<Plug>,
 }
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
@@ -152,6 +164,7 @@ impl Package {
             extended_by: &self.extended_by,
             extra_triggers: &self.extra_triggers,
             migrations: &self.migrations,
+            plug: self.plug.as_ref(),
         }
     }
 }
@@ -754,6 +767,7 @@ pub struct PackageInstance<'a> {
     pub extended_by: &'a Set<TemplateString>,
     pub extra_triggers: &'a Set<TemplateString>,
     pub migrations: &'a Map<MigrationVersion, Migration>,
+    pub plug: Option<&'a Plug>,
 }
 
 impl<'a> PackageInstance<'a> {
