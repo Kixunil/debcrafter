@@ -326,6 +326,8 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         let mut written = false;
         for (provider, alternative) in alternatives {
             if !written {
+                // This intentionally does **not** skip if there's a version string present as
+                // running it twice is harmless but not running it is harmful.
                 writeln!(self.out, "if [ \"$1\" = configure ];")?;
                 writeln!(self.out, "then")?;
                 written = true;
