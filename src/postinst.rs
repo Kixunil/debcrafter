@@ -519,7 +519,7 @@ fn handle_config<'a, T: HandlePostinst, P: Package<'a>>(handler: &mut T, package
                                 use crate::template::Query;
 
                                 if package.constants_by_variant().get(var).is_none() {
-                                    panic!("Unknown constant {}");
+                                    panic!("Unknown constant {}", var);
                                 }
                             }
                         }
