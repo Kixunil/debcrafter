@@ -232,7 +232,7 @@ Building and usage
 
 You need [Rust](https://rust-lang.org) in order to build `debcrafter`. (If you wonder why Rust, it's because of its awesome [`serde`](https://crates.io/crates/serde) crate.)
 
-Just download (clone) the source code and run `cargo install --bin gen_deb_repository --path .`
+Just download (clone) the source code and run `cargo install --path .`
 
 Once you write your repository/package specifications, run `gen_deb_repository /path/to/packages.srs /output/dir` to generate the directory.
 You can place `source.changelog` files into source directory too and it will copy those files where appropriate. You can then run `dpkg-buildpackage` from the output
