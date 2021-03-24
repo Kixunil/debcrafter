@@ -654,6 +654,8 @@ pub struct InternalVar {
     pub long_doc: Option<TemplateString>,
     #[serde(default)]
     pub default: Option<TemplateString>,
+    #[serde(default)]
+    pub try_overwrite_default: Option<TemplateString>,
     pub priority: DebconfPriority,
     #[serde(default = "create_true")]
     pub store: bool,

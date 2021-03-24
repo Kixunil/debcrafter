@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use debcrafter::{PackageInstance, PackageConfig, ConfType, DebconfPriority};
 use crate::codegen::{LazyCreateBuilder};
 use debcrafter::postinst::Package;
+use crate::generator::postinst::DisplayEscaped;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let header = "#!/bin/bash
@@ -39,6 +40,18 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             ConfType::Static { .. } => (),
             ConfType::Dynamic { ivars, .. } =>  {
                 for (var_name, var) in ivars {
+                    if let Some(try_overwrite_default) = &var.try_overwrite_default {
+                        writeln!(out, "db_fget {}/{} seen", instance.name, var_name)?;
+                        writeln!(out, "if [ \"$RET\" '!=' 'true' ];")?;
+                        writeln!(out, "then")?;
+                        writeln!(out, "\tif default_value=\"$(setpriv --reuid=nobody --regid=nogroup --init-groups --inh-caps=-all --no-new-privs bash -c {})\";", DisplayEscaped(try_overwrite_default.expand(instance.constants_by_variant())))?;
+                        writeln!(out, "\tthen")?;
+                        writeln!(out, "\t\tdb_set {}/{} \"$default_value\"", instance.name, var_name)?;
+                        writeln!(out, "\t\tdb_fset {}/{} seen false", instance.name, var_name)?;
+                        writeln!(out, "\tfi")?;
+                        writeln!(out, "fi")?;
+                    }
+
                     let priority = match &var.priority {
                         DebconfPriority::Low => "PRIORITY=low",
                         DebconfPriority::Medium => "PRIORITY=medium",
