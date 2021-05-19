@@ -58,7 +58,7 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
 }
 
 fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
-    if let Some(plug) = instance.plug {
+    for plug in instance.plug.iter().rev() {
         let user = plug.run_as_user.expand_to_cow(instance.constants_by_variant());
         let group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
         let privileges = CommandPrivileges {

@@ -80,7 +80,7 @@ pub struct Package {
     #[serde(default)]
     pub migrations: Map<MigrationVersion, Migration>,
     #[serde(default)]
-    pub plug: Option<Plug>,
+    pub plug: Vec<Plug>,
 }
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
@@ -769,7 +769,7 @@ pub struct PackageInstance<'a> {
     pub extended_by: &'a Set<TemplateString>,
     pub extra_triggers: &'a Set<TemplateString>,
     pub migrations: &'a Map<MigrationVersion, Migration>,
-    pub plug: Option<&'a Plug>,
+    pub plug: &'a [Plug],
 }
 
 impl<'a> PackageInstance<'a> {

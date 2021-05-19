@@ -835,7 +835,7 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     }
 
     handler.trigger_config_changed(instance)?;
-    if let Some(plug) = instance.plug {
+    for plug in instance.plug {
         let user = plug.run_as_user.expand_to_cow(instance.constants_by_variant());
         let group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
         let privileges = CommandPrivileges {
