@@ -82,7 +82,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                 }
             }
         }
-        writeln!(out)?;
+        writeln!(out, " $DEBCRAFTER_EXTRA_SERVICE_ARGS")?;
         write_kv_opt(&mut out, "ExecStop", instance.spec.exec_stop.as_ref())?;
 
         writeln!(out, "User={}", instance.user_name())?;
