@@ -325,7 +325,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
         writeln!(self.out, "EOF\n")
     }
-    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<debcrafter::Alternative> {
+    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<debcrafter::im_repr::Alternative> {
         let mut written = false;
         for (provider, alternative) in alternatives {
             if !written {

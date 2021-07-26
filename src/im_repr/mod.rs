@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use crate::template::TemplateString;
 use crate::types::{VPackageName, Variant, NonEmptyMap};
 
-pub use crate::input::{Plug, FileDeps, PackageSpec, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ServicePackageSpec, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig};
+pub use crate::input::{Plug, FileDeps, PackageSpec, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ServicePackageSpec, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
 use super::{Map, Set};
 
 pub trait PackageConfig {

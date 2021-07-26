@@ -1,6 +1,6 @@
-use crate::{PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, Set, Map, ExtraGroup, Database, MigrationVersion, Migration};
+use crate::{Set, Map};
 use crate::types::{NonEmptyMap, VPackageName};
-use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant};
+use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
@@ -65,7 +65,7 @@ pub trait HandlePostinst: Sized {
     fn include_conf_file<T: fmt::Display>(&mut self, config: &Config, file: T) -> Result<(), Self::Error>;
     fn run_command<I>(&mut self, command: I, env: &CommandEnv<'_>) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display;
     fn write_comment(&mut self, config: &Config, comment: &str) -> Result<(), Self::Error>;
-    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<crate::Alternative>;
+    fn register_alternatives<A, B, I>(&mut self, alternatives: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: std::borrow::Borrow<Alternative>;
     fn patch_files<A, B, I>(&mut self, pkg_name: &str, patches: I) -> Result<(), Self::Error> where I: IntoIterator<Item=(A, B)>, A: AsRef<str>, B: AsRef<str>;
     fn activate_trigger(&mut self, trigger: &str, no_await: bool) -> Result<(), Self::Error>;
     fn create_tree(&mut self, path: &str) -> Result<(), Self::Error>;
@@ -129,7 +129,7 @@ impl<'a, I> PartialEq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clon
 
 impl<'a, I> Eq for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {}
 
-fn handle_postprocess<'a, 'b, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, package: &P, triggers: &mut Set<Cow<'b, str>>, postprocess: &'b crate::PostProcess) -> Result<(), T::Error> {
+fn handle_postprocess<'a, 'b, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, package: &P, triggers: &mut Set<Cow<'b, str>>, postprocess: &'b PostProcess) -> Result<(), T::Error> {
     for generated in &postprocess.generates {
         let path = match &generated.ty {
             GeneratedType::File(path) => path,
@@ -469,7 +469,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
 
     if needs_stopped_service {
         for config in package.config().values() {
-            if let ConfType::Dynamic { postprocess: Some(postprocess @ crate::PostProcess { stop_service: true, .. }), .. } = &config.conf_type {
+            if let ConfType::Dynamic { postprocess: Some(postprocess @ PostProcess { stop_service: true, .. }), .. } = &config.conf_type {
                 handle_postprocess(handler, package, &mut triggers, postprocess)?;
             }
         }

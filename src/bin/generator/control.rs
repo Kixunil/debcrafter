@@ -92,7 +92,7 @@ fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: 
 }
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str, buildsystem: Option<&str>) -> io::Result<()> {
-    use debcrafter::BoolOrVecTemplateString;
+    use debcrafter::im_repr::BoolOrVecTemplateString;
 
     let mut out = out.finalize();
 
@@ -101,7 +101,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
     writeln!(out, "Priority: optional")?;
     let architecture = match &instance.spec {
         PackageSpec::Base(base) => &base.architecture,
-        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => &debcrafter::Architecture::All,
+        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => &debcrafter::im_repr::Architecture::All,
     };
     writeln!(out, "Architecture: {}", architecture)?;
     write!(out, "Depends: ")?;

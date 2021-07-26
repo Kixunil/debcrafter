@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageInstance, ConfType, FileVar};
+use debcrafter::im_repr::{PackageSpec, PackageInstance, ConfType, FileVar};
 use debcrafter::Set;
 use crate::codegen::{LazyCreateBuilder};
 
@@ -21,9 +21,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         true
     } else {
         let has_patches = match &instance.spec {
-            debcrafter::PackageSpec::Service(spec) => !spec.patch_foreign.is_empty(),
-            debcrafter::PackageSpec::ConfExt(spec) => !spec.patch_foreign.is_empty(),
-            debcrafter::PackageSpec::Base(spec) => !spec.patch_foreign.is_empty(),
+            PackageSpec::Service(spec) => !spec.patch_foreign.is_empty(),
+            PackageSpec::ConfExt(spec) => !spec.patch_foreign.is_empty(),
+            PackageSpec::Base(spec) => !spec.patch_foreign.is_empty(),
         };
         has_patches || instance
             .config()
@@ -71,9 +71,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
 
         let patches = match &instance.spec {
-            debcrafter::PackageSpec::Service(spec) => &spec.patch_foreign,
-            debcrafter::PackageSpec::ConfExt(spec) => &spec.patch_foreign,
-            debcrafter::PackageSpec::Base(spec) => &spec.patch_foreign,
+            PackageSpec::Service(spec) => &spec.patch_foreign,
+            PackageSpec::ConfExt(spec) => &spec.patch_foreign,
+            PackageSpec::Base(spec) => &spec.patch_foreign,
         };
 
         for (dest, _) in patches {

@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageInstance, PackageConfig, ConfType, PackageOps};
+use debcrafter::im_repr::{PackageSpec, PackageInstance, PackageConfig, ConfType, PackageOps};
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
@@ -21,9 +21,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     }
 
     let additional_files = match &instance.spec {
-        debcrafter::PackageSpec::Service(spec) => &spec.add_files,
-        debcrafter::PackageSpec::ConfExt(spec) => &spec.add_files,
-        debcrafter::PackageSpec::Base(spec) => &spec.add_files,
+        PackageSpec::Service(spec) => &spec.add_files,
+        PackageSpec::ConfExt(spec) => &spec.add_files,
+        PackageSpec::Base(spec) => &spec.add_files,
     };
 
     for file in additional_files {
