@@ -407,6 +407,8 @@ pub struct ServicePackageSpec {
     pub min_patch: Option<String>,
     pub binary: String,
     #[serde(default)]
+    pub bare_conf_param: bool,
+    #[serde(default)]
     pub conf_param: Option<String>,
     #[serde(default)]
     pub conf_d: Option<ConfDir>,
