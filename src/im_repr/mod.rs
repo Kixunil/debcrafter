@@ -8,7 +8,7 @@ mod service;
 mod conf_ext;
 
 pub use base::BasePackageSpec;
-pub use service::{ServicePackageSpec, ConfParam};
+pub use service::{ServicePackageSpec, ConfParam, ServiceInstance};
 pub use conf_ext::ConfExtPackageSpec;
 
 pub use crate::input::{Plug, FileDeps, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
@@ -189,35 +189,6 @@ impl<'a> PackageInstance<'a> {
     }
 }
 
-pub struct ServiceInstance<'a> {
-    pub name: &'a Cow<'a, str>,
-    pub variant: Option<&'a Variant>,
-    pub map_variants: &'a Map<String, Map<Variant, String>>,
-    pub summary: &'a TemplateString,
-    pub spec: &'a ServicePackageSpec,
-    pub config: &'a Map<TemplateString, Config>,
-    pub databases: &'a Map<Database, DbConfig>,
-    pub includes: Option<&'a Map<VPackageName, Package>>,
-}
-
-impl<'a> ServiceInstance<'a> {
-    pub fn user_name(&self) -> Cow<'a, str> {
-        self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref()))
-    }
-
-    pub fn service_name(&self) -> &'a str {
-        &**self.name
-    }
-
-    pub fn service_group(&self) -> Option<Cow<'a, str>> {
-        if self.spec.user.group {
-            Some(self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref())))
-        } else {
-            None
-        }
-    }
-}
-
 pub trait PackageOps<'a>: PackageConfig {
     fn config_pkg_name(&self) -> &str;
     fn variant(&self) -> Option<&Variant>;
@@ -232,67 +203,6 @@ pub trait PackageOps<'a>: PackageConfig {
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
     fn databases(&self) -> &Map<Database, DbConfig>;
-}
-
-impl<'a> PackageOps<'a> for ServiceInstance<'a> {
-    fn config_pkg_name(&self) -> &str {
-        &self.name
-    }
-
-    fn variant(&self) -> Option<&Variant> {
-        self.variant
-    }
-
-    fn constants_by_variant(&self) -> ConstantsByVariant<'_> {
-        ConstantsByVariant {
-            variant: self.variant,
-            constants: self.map_variants,
-        }
-    }
-
-    fn config_sub_dir(&self) -> Cow<'a, str> {
-        (&**self.name).into()
-    }
-
-    fn internal_config_sub_dir(&self) -> Cow<'a, str> {
-        (&**self.name).into()
-    }
-
-    fn service_name(&self) -> Option<&str> {
-        Some(ServiceInstance::service_name(self))
-    }
-
-    fn service_user(&self) -> Option<Cow<'_, str>> {
-        Some(self.user_name())
-    }
-
-    fn service_group(&self) -> Option<Cow<'_, str>> {
-        if self.spec.user.group {
-            Some(self.user_name())
-        } else {
-            None
-        }
-    }
-
-    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>> {
-        NonEmptyMap::from_map(&self.spec.extra_groups)
-    }
-
-    fn get_include(&self, name: &VPackageName) -> Option<&Package> {
-        self.includes.as_ref().and_then(|includes| includes.get(name))
-    }
-
-    fn is_conf_ext(&self) -> bool {
-        false
-    }
-
-    fn conf_dir(&self) -> Option<&str> {
-        self.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref())
-    }
-
-    fn databases(&self) -> &Map<Database, DbConfig> {
-        &self.databases
-    }
 }
 
 impl<'a> PackageOps<'a> for PackageInstance<'a> {
