@@ -262,6 +262,36 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
 }
 
+fn check(source_dir: &Path, name: &str, source: &mut Source) {
+    use debcrafter::im_repr::PackageError;
+
+    let mut changelog_path = source_dir.join(name);
+    changelog_path.set_extension("changelog");
+    let version = changelog_parse_version(&changelog_path);
+    get_upstream_version(&version);
+
+    let packages = source.packages
+        .iter()
+        .map(|package| load_package(source_dir, &package));
+
+    for (package, _filename) in packages {
+        let includes = package
+            .load_includes(source_dir, None)
+            .into_iter()
+            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package)?)))
+            .collect::<Result<_, PackageError>>().expect("invalid package");
+        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
+
+        if source.variants.is_empty() || !package.name.is_templated() {
+            package.instantiate(None, Some(&includes));
+        } else {
+            for variant in &source.variants {
+                package.instantiate(Some(&variant), Some(&includes));
+            }
+        };
+    }
+}
+
 fn main() {
     let mut args = std::env::args_os();
     args.next().expect("Not even zeroth argument given");
@@ -269,6 +299,7 @@ fn main() {
     let dest = std::path::PathBuf::from(args.next().expect("Dest not specified."));
     let mut split_source = false;
     let mut write_deps = None;
+    let mut check_only = false;
 
     while let Some(arg) = args.next() {
         if arg == "--split-source" {
@@ -279,20 +310,36 @@ fn main() {
             let file = args.next().expect("missing argument for --write-deps");
             write_deps = Some(file.into_string().expect("Invalid UTF econding"));
         }
+
+        if arg == "--check" {
+            check_only = true;
+        }
+    }
+
+    if write_deps.is_some() && check_only {
+        panic!("Specifying --check and --write-deps at the same time doesn't make sense");
     }
 
     let mut dep_file = write_deps.map(|dep_file| fs::File::create(dep_file).expect("failed to open dependency file"));
 
     if split_source {
         let mut source = debcrafter::input::load_toml::<SingleSource, _>(&spec_file).expect("Failed to load source");
-        let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
-        
-        gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer, dep_file.as_mut())
+        if check_only {
+            check(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source);
+        } else {
+            let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
+
+            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer, dep_file.as_mut())
+        }
     } else {
         let repo = debcrafter::input::load_toml::<Repository, _>(&spec_file).expect("Failed to load repository");
         
         for (name, mut source) in repo.sources {
-            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer, dep_file.as_mut())
+            if check_only {
+                check(spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source);
+            } else {
+                gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer, dep_file.as_mut())
+            }
         }
     }
 }
