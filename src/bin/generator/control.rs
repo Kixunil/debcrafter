@@ -1,7 +1,7 @@
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::{PackageInstance, PackageSpec, ConfType, Set};
+use debcrafter::im_repr::{PackageOps, PackageInstance, PackageSpec, ConfType};
+use debcrafter::Set;
 use std::io::{self, Write};
-use debcrafter::postinst::Package;
 
 fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &str) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
     use std::borrow::Cow;

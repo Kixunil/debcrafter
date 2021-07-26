@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::borrow::Cow;
-use debcrafter::{PackageInstance, ConfType, Config, Map, Set};
+use debcrafter::im_repr::{PackageOps, PackageInstance, ConstantsByVariant, ConfType, Config};
+use debcrafter::{Map, Set};
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::postinst::{Package, ConstantsByVariant};
 use debcrafter::template::TemplateString;
 
 fn filter_configs<'a>(configs: &'a Map<TemplateString, Config>, conf_dir: Option<&str>, constants_by_variant: ConstantsByVariant<'_>) -> Set<Cow<'a, str>> {

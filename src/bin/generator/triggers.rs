@@ -1,10 +1,10 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, ConfType, FileVar, Set};
+use debcrafter::im_repr::{PackageInstance, ConfType, FileVar};
+use debcrafter::Set;
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
-    use debcrafter::PackageConfig;
-    use debcrafter::postinst::Package;
+    use debcrafter::im_repr::{PackageConfig, PackageOps};
 
     let mut dirs = Set::new();
     let mut files_no_await = Set::new();

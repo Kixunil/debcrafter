@@ -2,11 +2,14 @@ use std::{io, fs};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use codegen::{LazyCreateBuilder};
-use debcrafter::{Package, PackageInstance, ServiceInstance, Map, Set};
+use debcrafter::{Map, Set};
+use debcrafter::input::Package;
+use debcrafter::im_repr::{PackageInstance, ServiceInstance};
 use debcrafter::types::{VPackageName, Variant};
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
 use either::Either;
+use std::convert::TryFrom;
 
 mod generator;
 mod codegen;
@@ -180,6 +183,8 @@ fn get_upstream_version(version: &str) -> &str {
 }
 
 fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str, mut dep_file: Option<&mut fs::File>) {
+    use debcrafter::im_repr::PackageError;
+
     let mut changelog_path = source_dir.join(name);
     changelog_path.set_extension("changelog");
     let version = changelog_parse_version(&changelog_path);
@@ -203,9 +208,14 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
         .map(|package| load_package(source_dir, &package));
 
     for (package, filename) in packages {
-        use debcrafter::postinst::Package as PostinstPackage;
+        use debcrafter::im_repr::PackageOps;
         let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename); &mut **deps});
-        let includes = package.load_includes(source_dir, deps_opt);
+        let includes = package
+            .load_includes(source_dir, deps_opt)
+            .into_iter()
+            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package)?)))
+            .collect::<Result<_, PackageError>>().expect("invalid package");
+        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
 
         let instances = if source.variants.is_empty() || !package.name.is_templated() {
             Either::Left(std::iter::once(package.instantiate(None, Some(&includes))))

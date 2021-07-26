@@ -1,7 +1,6 @@
 use std::fmt;
 use serde_derive::Deserialize;
 use std::path::{Path, PathBuf};
-use std::borrow::Cow;
 use std::convert::TryFrom;
 use crate::template::TemplateString;
 use linked_hash_map::LinkedHashMap;
@@ -12,35 +11,6 @@ use super::{Map, Set};
 fn create_true() -> bool {
     true
 }
-
-pub trait PackageConfig {
-    fn config(&self) -> &Map<TemplateString, Config>;
-}
-
-impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        (*self).config()
-    }
-}
-
-impl<'a> PackageConfig for PackageInstance<'a> {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        &self.spec.config()
-    }
-}
-
-impl<'a> PackageConfig for ServiceInstance<'a> {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        &self.spec.config()
-    }
-}
-
-impl PackageConfig for ServicePackageSpec {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        &self.config
-    }
-}
-
 
 #[derive(Deserialize)]
 pub struct Plug {
@@ -126,7 +96,12 @@ impl Package {
 
     pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
         let mut result = Map::new();
-        for (_, conf) in self.config() {
+        let config = match &self.spec {
+            PackageSpec::Service(spec) => &spec.config,
+            PackageSpec::ConfExt(spec) => &spec.config,
+            PackageSpec::Base(spec) => &spec.config,
+        };
+        for (_, conf) in config {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for (pkg, _) in evars {
                     let deps = deps.as_mut().map(|deps| &mut **deps);
@@ -140,33 +115,6 @@ impl Package {
         }
 
         result
-    }
-
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a Variant>, includes: Option<&'a Map<VPackageName, Package>>) -> PackageInstance<'a> {
-        let name = self.name.expand_to_cow(variant);
-
-        PackageInstance {
-            name,
-            variant,
-            map_variants: &self.map_variants,
-            spec: &self.spec,
-            includes,
-            depends: &self.depends,
-            provides: &self.provides,
-            recommends: &self.recommends,
-            suggests: &self.suggests,
-            conflicts: &self.conflicts,
-            extended_by: &self.extended_by,
-            extra_triggers: &self.extra_triggers,
-            migrations: &self.migrations,
-            plug: self.plug.as_ref(),
-        }
-    }
-}
-
-impl PackageConfig for Package {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        self.spec.config()
     }
 }
 
@@ -192,16 +140,6 @@ impl PackageSpec {
             PackageSpec::Base(base) => &base.long_doc,
             PackageSpec::Service(service) => &service.long_doc,
             PackageSpec::ConfExt(confext) => &confext.long_doc,
-        }
-    }
-}
-
-impl PackageConfig for PackageSpec {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        match self {
-            PackageSpec::Base(base) => &base.config,
-            PackageSpec::Service(service) => &service.config,
-            PackageSpec::ConfExt(confext) => &confext.config,
         }
     }
 }
@@ -752,67 +690,4 @@ pub struct Alternative {
     pub name: String,
     pub dest: String,
     pub priority: u32,
-}
-
-pub struct PackageInstance<'a> {
-    pub name: Cow<'a, str>,
-    pub variant: Option<&'a Variant>,
-    pub map_variants: &'a Map<String, Map<Variant, String>>,
-    pub spec: &'a PackageSpec,
-    pub includes: Option<&'a Map<VPackageName, Package>>,
-    pub depends: &'a Set<TemplateString>,
-    pub provides: &'a Set<TemplateString>,
-    pub recommends: &'a Set<TemplateString>,
-    pub suggests: &'a Set<TemplateString>,
-    pub conflicts: &'a Set<TemplateString>,
-    pub extended_by: &'a Set<TemplateString>,
-    pub extra_triggers: &'a Set<TemplateString>,
-    pub migrations: &'a Map<MigrationVersion, Migration>,
-    pub plug: &'a [Plug],
-}
-
-impl<'a> PackageInstance<'a> {
-    pub fn as_service<'b>(&'b self) -> Option<ServiceInstance<'b>> {
-        if let PackageSpec::Service(service) = &self.spec {
-            Some(ServiceInstance {
-                name: &self.name,
-                variant: self.variant,
-                map_variants: &self.map_variants,
-                spec: service,
-                includes: self.includes,
-            })
-        } else {
-            None
-        }
-    }
-}
-
-pub struct ServiceInstance<'a> {
-    pub name: &'a Cow<'a, str>,
-    pub variant: Option<&'a Variant>,
-    pub map_variants: &'a Map<String, Map<Variant, String>>,
-    pub spec: &'a ServicePackageSpec,
-    pub includes: Option<&'a Map<VPackageName, Package>>,
-}
-
-impl<'a> ServiceInstance<'a> {
-    pub fn user_name(&self) -> Cow<'a, str> {
-        use crate::postinst::Package;
-
-        self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref()))
-    }
-
-    pub fn service_name(&self) -> &'a str {
-        &**self.name
-    }
-
-    pub fn service_group(&self) -> Option<Cow<'a, str>> {
-        use crate::postinst::Package;
-
-        if self.spec.user.group {
-            Some(self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref())))
-        } else {
-            None
-        }
-    }
 }

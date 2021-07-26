@@ -1,7 +1,6 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageConfig, ConfType, DebconfPriority};
+use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, DebconfPriority};
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::postinst::Package;
 use crate::generator::postinst::DisplayEscaped;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {

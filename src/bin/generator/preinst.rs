@@ -1,5 +1,5 @@
 use std::io;
-use debcrafter::PackageInstance;
+use debcrafter::im_repr::PackageInstance;
 use crate::codegen::{LazyCreateBuilder};
 
 /*

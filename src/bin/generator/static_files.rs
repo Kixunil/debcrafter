@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package};
+use debcrafter::im_repr::{PackageInstance, PackageConfig, ConfType, PackageOps};
 
 pub fn generate(instance: &PackageInstance, source_root: &Path) -> io::Result<()> {
     let static_dir = source_root.join(&*instance.name);

@@ -1,5 +1,6 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageConfig, ConfType, postinst::Package, GeneratedType, Set};
+use debcrafter::im_repr::{PackageInstance, PackageConfig, ConfType, PackageOps, GeneratedType};
+use debcrafter::Set;
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
 

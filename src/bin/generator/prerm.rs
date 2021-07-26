@@ -1,7 +1,7 @@
 use std::io;
 use std::borrow::Cow;
-use debcrafter::{PackageInstance, PackageSpec};
-use debcrafter::postinst::{CommandEnv, CommandPrivileges, Package};
+use debcrafter::im_repr::{PackageInstance, PackageSpec, PackageOps};
+use debcrafter::postinst::{CommandEnv, CommandPrivileges};
 use crate::codegen::{LazyCreateBuilder};
 use crate::generator::postinst::DisplayEscaped;
 

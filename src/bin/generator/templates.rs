@@ -1,7 +1,6 @@
 use std::io::{self, Write};
-use debcrafter::{PackageInstance, PackageConfig, ConfType, VarType};
+use debcrafter::im_repr::{PackageInstance, PackageConfig, PackageOps, ConfType, VarType};
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::postinst::Package;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
