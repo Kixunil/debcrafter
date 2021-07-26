@@ -72,17 +72,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             None
         };
 
-        let param = match (&instance.spec.conf_param, instance.spec.bare_conf_param) {
-            (None, false) => None,
-            (None, true) => Some(("", "")),
-            (Some(param), false) if param.ends_with('=') => Some((&**param, "")),
-            (Some(param), false) => Some((&**param, " ")),
-            (Some(_), true) => panic!("Can not use both conf_param and bare_conf_param"),
-        };
-
-        if let Some((param, separator)) = param {
+        if let Some(param) = &instance.spec.conf_param {
             for file in filter_configs(&instance.config, conf_dir_name, instance.constants_by_variant()) {
-                write!(out, " {}{}/etc/{}/{}", param, separator, instance.name, file)?;
+                write!(out, " {}{}/etc/{}/{}", param.param(), param.separator(), instance.name, file)?;
             }
         }
         writeln!(out, " $DEBCRAFTER_EXTRA_SERVICE_ARGS")?;

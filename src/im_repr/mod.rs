@@ -8,7 +8,7 @@ mod service;
 mod conf_ext;
 
 pub use base::BasePackageSpec;
-pub use service::ServicePackageSpec;
+pub use service::{ServicePackageSpec, ConfParam};
 pub use conf_ext::ConfExtPackageSpec;
 
 pub use crate::input::{Plug, FileDeps, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
@@ -102,7 +102,7 @@ impl TryFrom<crate::input::Package> for Package {
 
         let (spec, summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign) = match value.spec {
             input::PackageSpec::Base(input::BasePackageSpec { architecture, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, }) => (PackageSpec::Base(BasePackageSpec { architecture, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
-            input::PackageSpec::Service(input::ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, config, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, summary, long_doc, databases, extra_groups, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, allow_suid_sgid, }) => (PackageSpec::Service(ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, allow_suid_sgid, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
+            input::PackageSpec::Service(input::ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, config, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, summary, long_doc, databases, extra_groups, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, allow_suid_sgid, }) => (PackageSpec::Service(ServicePackageSpec { bin_package, min_patch, binary, conf_param: ConfParam::from_input(conf_param, bare_conf_param), conf_d, user, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, allow_suid_sgid, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
             input::PackageSpec::ConfExt(input::ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, extra_groups, }) => (PackageSpec::ConfExt(ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
         };
 
