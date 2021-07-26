@@ -32,22 +32,18 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         None
     };
 
-    let (main_dep, config, is_service, patch, external) = match &instance.spec {
-        PackageSpec::Base(base) => (None, &base.config, false, None, false),
+    let (main_dep, is_service, patch, external) = match &instance.spec {
+        PackageSpec::Base(_) => (None, false, None, false),
         PackageSpec::Service(service) => {
-            (Some(Cow::Borrowed(&*service.bin_package)), &service.config, true, service.min_patch.as_ref(), false)
+            (Some(Cow::Borrowed(&*service.bin_package)), true, service.min_patch.as_ref(), false)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
-            (Some(confext.extends.expand_to_cow(instance.variant())), &confext.config, false, confext.min_patch.as_ref(), confext.external)
+            (Some(confext.extends.expand_to_cow(instance.variant())), false, confext.min_patch.as_ref(), confext.external)
         } else {
-            (None, &confext.config, false, None, confext.external)
+            (None, false, None, confext.external)
         },
     };
-    let has_patches = !match &instance.spec {
-        PackageSpec::Base(base) => &base.patch_foreign,
-        PackageSpec::Service(service) => &service.patch_foreign,
-        PackageSpec::ConfExt(confext) => &confext.patch_foreign,
-    }.is_empty();
+    let has_patches = !instance.patch_foreign.is_empty();
 
     let cond_to_opt = |present, dependency: &'static str| if present {
         Some(dependency.into())
@@ -58,7 +54,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
     let patch_deps = cond_to_opt(has_patches, "patch");
     let systemd_deps = cond_to_opt(is_service, "procps");
 
-    config
+    instance.config
         .iter()
         .flat_map(|(_, conf)| if let ConfType::Dynamic { evars, ..} = &conf.conf_type {
             Some(evars.keys().map(|pkg_name| pkg_name.expand_to_cow(instance.variant())))
@@ -134,11 +130,11 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
     } else {
         write_deps(&mut out, "Recommends", instance.recommends.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
     }
-    if let Some(summary) = instance.spec.summary() {
-        writeln!(out, "Description: {}", summary.expand(instance.constants_by_variant()))?;
-        if let Some(long) = instance.spec.long_doc() {
-            crate::codegen::paragraph(&mut out, &long.expand_to_cow(instance.constants_by_variant()))?;
-        }
+
+    writeln!(out, "Description: {}", instance.summary.expand(instance.constants_by_variant()))?;
+    if let Some(long) = instance.long_doc {
+        crate::codegen::paragraph(&mut out, &long.expand_to_cow(instance.constants_by_variant()))?;
     }
+
     Ok(())
 }

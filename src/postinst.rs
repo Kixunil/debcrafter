@@ -1,6 +1,6 @@
 use crate::{Set, Map};
 use crate::types::{NonEmptyMap, VPackageName};
-use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, PackageSpec, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess};
+use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess};
 use std::fmt;
 use std::borrow::Cow;
 use itertools::Either;
@@ -570,28 +570,18 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
         handler.prepare_database(request)?;
     }
 
-    let patches = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.patch_foreign,
-        PackageSpec::ConfExt(spec) => &spec.patch_foreign,
-        PackageSpec::Base(spec) => &spec.patch_foreign,
-    };
+    handler.patch_files(&instance.name, instance.patch_foreign)?;
 
-    handler.patch_files(&instance.name, patches)?;
-
-    let apparmor_needs_reload = patches.keys().any(|file| file.starts_with("/etc/apparmor.d/"));
+    let apparmor_needs_reload = instance.patch_foreign
+        .keys()
+        .any(|file| file.starts_with("/etc/apparmor.d/"));
     if apparmor_needs_reload {
         handler.reload_apparmor()?;
     }
 
     handle_config(&mut handler, instance)?;
 
-    let alternatives = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.alternatives,
-        PackageSpec::ConfExt(spec) => &spec.alternatives,
-        PackageSpec::Base(spec) => &spec.alternatives,
-    };
-
-    handler.register_alternatives(alternatives)?;
+    handler.register_alternatives(instance.alternatives)?;
 
     if let Some(service) = instance.as_service() {
         if !service.spec.refuse_manual_start && !service.spec.refuse_manual_stop {

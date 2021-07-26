@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageSpec, PackageInstance, PackageConfig, ConfType, PackageOps};
+use debcrafter::im_repr::{PackageInstance, PackageConfig, ConfType, PackageOps};
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
@@ -12,13 +12,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
     }
 
-    let additional_links = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.add_links,
-        PackageSpec::ConfExt(spec) => &spec.add_links,
-        PackageSpec::Base(spec) => &spec.add_links,
-    };
-
-    for link in additional_links {
+    for link in instance.add_links {
         writeln!(out, "{}", link.expand(instance.constants_by_variant()))?;
     }
 

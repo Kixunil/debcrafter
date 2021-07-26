@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageSpec, PackageInstance, PackageConfig, ConfType, PackageOps};
+use debcrafter::im_repr::{PackageInstance, PackageConfig, ConfType, PackageOps};
 use crate::codegen::{LazyCreateBuilder};
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
@@ -20,13 +20,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         writeln!(out, "{}/usr/share/{}/dbconfig-common/template /usr/share/{}/dbconfig-common", instance.name, instance.internal_config_sub_dir(), instance.internal_config_sub_dir())?;
     }
 
-    let additional_files = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.add_files,
-        PackageSpec::ConfExt(spec) => &spec.add_files,
-        PackageSpec::Base(spec) => &spec.add_files,
-    };
-
-    for file in additional_files {
+    for file in instance.add_files {
         writeln!(out, "{}", file.expand(instance.constants_by_variant()))?;
     }
 

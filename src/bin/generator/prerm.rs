@@ -1,20 +1,14 @@
 use std::io;
 use std::borrow::Cow;
-use debcrafter::im_repr::{PackageInstance, PackageSpec, PackageOps};
+use debcrafter::im_repr::{PackageInstance, PackageOps};
 use debcrafter::postinst::{CommandEnv, CommandPrivileges};
 use crate::codegen::{LazyCreateBuilder};
 use crate::generator::postinst::DisplayEscaped;
 
 fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
-    let alternatives = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.alternatives,
-        PackageSpec::ConfExt(spec) => &spec.alternatives,
-        PackageSpec::Base(spec) => &spec.alternatives,
-    };
-
     let mut written = false;
 
-    for (provider, alternative) in alternatives {
+    for (provider, alternative) in instance.alternatives {
         if !written {
             writeln!(out, "if [ \"$1\" = remove ] || [ \"$1\" = deconfigure ];")?;
             writeln!(out, "then")?;
@@ -32,13 +26,7 @@ fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> i
 }
 
 fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
-    let patches = match &instance.spec {
-        PackageSpec::Service(spec) => &spec.patch_foreign,
-        PackageSpec::ConfExt(spec) => &spec.patch_foreign,
-        PackageSpec::Base(spec) => &spec.patch_foreign,
-    };
-
-    for (dest, _) in patches {
+    for (dest, _) in instance.patch_foreign {
         writeln!(out, "if [ `dpkg-divert --list \"{}\" | wc -l` -gt 0 ];", dest)?;
         writeln!(out, "then")?;
         writeln!(out, "\trm -f \"{}\"", dest)?;
@@ -46,7 +34,9 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
         writeln!(out, "fi")?;
     }
 
-    let apparmor_needs_reload = patches.keys().any(|file| file.starts_with("/etc/apparmor.d/"));
+    let apparmor_needs_reload = instance.patch_foreign
+        .keys()
+        .any(|file| file.starts_with("/etc/apparmor.d/"));
     if apparmor_needs_reload {
         writeln!(out, "if aa-enabled &> /dev/null && systemctl is-active apparmor;")?;
         writeln!(out, "then")?;

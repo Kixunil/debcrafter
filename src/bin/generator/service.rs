@@ -40,7 +40,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
 
         writeln!(out, "[Unit]")?;
-        write_kv_opt(&mut out, "Description", instance.spec.summary.as_ref().map(|summary| summary.expand(instance.constants_by_variant())))?;
+        writeln!(out, "Description={}", instance.summary.expand(instance.constants_by_variant()))?;
         write_kv_opt(&mut out, "After", instance.spec.after.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
         write_kv_opt(&mut out, "Before", instance.spec.before.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
         write_kv_opt(&mut out, "Wants", instance.spec.wants.as_ref().map(|template| template.expand(instance.constants_by_variant())))?;
@@ -81,7 +81,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         };
 
         if let Some((param, separator)) = param {
-            for file in filter_configs(&instance.spec.config, conf_dir_name, instance.constants_by_variant()) {
+            for file in filter_configs(&instance.config, conf_dir_name, instance.constants_by_variant()) {
                 write!(out, " {}{}/etc/{}/{}", param, separator, instance.name, file)?;
             }
         }

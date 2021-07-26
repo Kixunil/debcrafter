@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use crate::template::TemplateString;
 use crate::types::{VPackageName, Variant, NonEmptyMap};
 
-pub use crate::input::{Plug, FileDeps, PackageSpec, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ServicePackageSpec, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
+pub use crate::input::{Plug, FileDeps, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
 use super::{Map, Set};
 
 pub trait PackageConfig {
@@ -18,21 +18,11 @@ impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
 
 impl<'a> PackageConfig for PackageInstance<'a> {
     fn config(&self) -> &Map<TemplateString, Config> {
-        match &self.spec {
-            PackageSpec::Service(spec) => &spec.config,
-            PackageSpec::ConfExt(spec) => &spec.config,
-            PackageSpec::Base(spec) => &spec.config,
-        }
+        &self.config
     }
 }
 
 impl<'a> PackageConfig for ServiceInstance<'a> {
-    fn config(&self) -> &Map<TemplateString, Config> {
-        &self.spec.config()
-    }
-}
-
-impl PackageConfig for ServicePackageSpec {
     fn config(&self) -> &Map<TemplateString, Config> {
         &self.config
     }
@@ -40,14 +30,24 @@ impl PackageConfig for ServicePackageSpec {
 
 pub struct Package {
     pub name: VPackageName,
+    pub summary: TemplateString,
+    pub long_doc: Option<TemplateString>,
     pub map_variants: Map<String, Map<Variant, String>>,
     pub spec: PackageSpec,
+    pub config: Map<TemplateString, Config>,
+    pub databases: Map<Database, DbConfig>,
     pub depends: Set<TemplateString>,
     pub provides: Set<TemplateString>,
     pub recommends: Set<TemplateString>,
     pub suggests: Set<TemplateString>,
     pub conflicts: Set<TemplateString>,
     pub extended_by: Set<TemplateString>,
+    pub add_files: Vec<TemplateString>,
+    pub add_dirs: Vec<TemplateString>,
+    pub add_links: Vec<TemplateString>,
+    pub add_manpages: Vec<String>,
+    pub alternatives: Map<String, Alternative>,
+    pub patch_foreign: Map<String, String>,
     pub extra_triggers: Set<TemplateString>,
     pub migrations: Map<MigrationVersion, Migration>,
     pub plug: Vec<Plug>,
@@ -61,7 +61,11 @@ impl Package {
             name,
             variant,
             map_variants: &self.map_variants,
+            summary: &self.summary,
+            long_doc: self.long_doc.as_ref(),
             spec: &self.spec,
+            config: &self.config,
+            databases: &self.databases,
             includes,
             depends: &self.depends,
             provides: &self.provides,
@@ -69,6 +73,12 @@ impl Package {
             suggests: &self.suggests,
             conflicts: &self.conflicts,
             extended_by: &self.extended_by,
+            add_files: &self.add_files,
+            add_dirs: &self.add_dirs,
+            add_links: &self.add_links,
+            add_manpages: &self.add_manpages,
+            alternatives: &self.alternatives,
+            patch_foreign: &self.patch_foreign,
             extra_triggers: &self.extra_triggers,
             migrations: &self.migrations,
             plug: self.plug.as_ref(),
@@ -80,16 +90,34 @@ impl TryFrom<crate::input::Package> for Package {
     type Error = PackageError;
 
     fn try_from(value: crate::input::Package) -> Result<Self, Self::Error> {
+        use crate::input;
+
+        let (spec, summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign) = match value.spec {
+            input::PackageSpec::Base(input::BasePackageSpec { architecture, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, }) => (PackageSpec::Base(BasePackageSpec { architecture, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
+            input::PackageSpec::Service(input::ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, config, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, summary, long_doc, databases, extra_groups, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, allow_suid_sgid, }) => (PackageSpec::Service(ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, allow_suid_sgid, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
+            input::PackageSpec::ConfExt(input::ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, extra_groups, }) => (PackageSpec::ConfExt(ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
+        };
+
         Ok(Package {
             name: value.name,
             map_variants: value.map_variants,
-            spec: value.spec,
+            summary: summary.expect("missing summary"),
+            long_doc,
+            spec,
+            config,
+            databases,
             depends: value.depends,
             provides: value.provides,
             recommends: value.recommends,
             suggests: value.suggests,
             conflicts: value.conflicts,
             extended_by: value.extended_by,
+            add_files,
+            add_dirs,
+            add_links,
+            add_manpages,
+            alternatives,
+            patch_foreign,
             extra_triggers: value.extra_triggers,
             migrations: value.migrations,
             plug: value.plug,
@@ -103,11 +131,7 @@ pub enum PackageError {
 
 impl PackageConfig for Package {
     fn config(&self) -> &Map<TemplateString, Config> {
-        match &self.spec {
-            PackageSpec::Service(spec) => &spec.config,
-            PackageSpec::ConfExt(spec) => &spec.config,
-            PackageSpec::Base(spec) => &spec.config,
-        }
+        &self.config
     }
 }
 
@@ -115,7 +139,11 @@ pub struct PackageInstance<'a> {
     pub name: Cow<'a, str>,
     pub variant: Option<&'a Variant>,
     pub map_variants: &'a Map<String, Map<Variant, String>>,
+    pub summary: &'a TemplateString,
+    pub long_doc: Option<&'a TemplateString>,
     pub spec: &'a PackageSpec,
+    pub config: &'a Map<TemplateString, Config>,
+    pub databases: &'a Map<Database, DbConfig>,
     pub includes: Option<&'a Map<VPackageName, Package>>,
     pub depends: &'a Set<TemplateString>,
     pub provides: &'a Set<TemplateString>,
@@ -123,6 +151,12 @@ pub struct PackageInstance<'a> {
     pub suggests: &'a Set<TemplateString>,
     pub conflicts: &'a Set<TemplateString>,
     pub extended_by: &'a Set<TemplateString>,
+    pub add_files: &'a [TemplateString],
+    pub add_dirs: &'a [TemplateString],
+    pub add_links: &'a [TemplateString],
+    pub add_manpages: &'a [String],
+    pub alternatives: &'a Map<String, Alternative>,
+    pub patch_foreign: &'a Map<String, String>,
     pub extra_triggers: &'a Set<TemplateString>,
     pub migrations: &'a Map<MigrationVersion, Migration>,
     pub plug: &'a [Plug],
@@ -135,7 +169,10 @@ impl<'a> PackageInstance<'a> {
                 name: &self.name,
                 variant: self.variant,
                 map_variants: &self.map_variants,
+                summary: &self.summary,
                 spec: service,
+                config: self.config,
+                databases: self.databases,
                 includes: self.includes,
             })
         } else {
@@ -148,7 +185,10 @@ pub struct ServiceInstance<'a> {
     pub name: &'a Cow<'a, str>,
     pub variant: Option<&'a Variant>,
     pub map_variants: &'a Map<String, Map<Variant, String>>,
+    pub summary: &'a TemplateString,
     pub spec: &'a ServicePackageSpec,
+    pub config: &'a Map<TemplateString, Config>,
+    pub databases: &'a Map<Database, DbConfig>,
     pub includes: Option<&'a Map<VPackageName, Package>>,
 }
 
@@ -243,7 +283,7 @@ impl<'a> PackageOps<'a> for ServiceInstance<'a> {
     }
 
     fn databases(&self) -> &Map<Database, DbConfig> {
-        &self.spec.databases
+        &self.databases
     }
 }
 
@@ -373,11 +413,7 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
     }
 
     fn databases(&self) -> &Map<Database, DbConfig> {
-        match self.spec {
-            PackageSpec::Base(base) => &base.databases,
-            PackageSpec::Service(service) => &service.databases,
-            PackageSpec::ConfExt(conf_ext) => &conf_ext.databases,
-        }
+        &self.databases
     }
 }
 
@@ -400,4 +436,49 @@ impl<'a> crate::template::Query for ConstantsByVariant<'a> {
             self.constants.get(key)?.get(self.variant?).map(AsRef::as_ref)
         }
     }
+}
+
+pub enum PackageSpec {
+    Service(ServicePackageSpec),
+    ConfExt(ConfExtPackageSpec),
+    Base(BasePackageSpec),
+}
+
+pub struct BasePackageSpec {
+    pub architecture: Architecture,
+}
+
+pub struct ServicePackageSpec {
+    pub bin_package: String,
+    pub min_patch: Option<String>,
+    pub binary: String,
+    pub bare_conf_param: bool,
+    pub conf_param: Option<String>,
+    pub conf_d: Option<ConfDir>,
+    pub user: UserSpec,
+    pub condition_path_exists: Option<TemplateString>,
+    pub service_type: Option<String>,
+    pub exec_stop: Option<String>,
+    pub after: Option<TemplateString>,
+    pub before: Option<TemplateString>,
+    pub wants: Option<TemplateString>,
+    pub requires: Option<TemplateString>,
+    pub binds_to: Option<TemplateString>,
+    pub part_of: Option<TemplateString>,
+    pub wanted_by: Option<TemplateString>,
+    pub refuse_manual_start: bool,
+    pub refuse_manual_stop: bool,
+    pub runtime_dir: Option<RuntimeDir>,
+    pub extra_service_config: Option<TemplateString>,
+    pub extra_groups: Map<TemplateString, ExtraGroup>,
+    pub allow_suid_sgid: bool,
+}
+
+pub struct ConfExtPackageSpec {
+    pub extends: VPackageName,
+    pub replaces: BoolOrVecTemplateString,
+    pub depends_on_extended: bool,
+    pub min_patch: Option<String>,
+    pub external: bool,
+    pub extra_groups: Map<TemplateString, ExtraGroup>,
 }

@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageSpec, PackageInstance, ConfType, FileVar};
+use debcrafter::im_repr::{PackageInstance, ConfType, FileVar};
 use debcrafter::Set;
 use crate::codegen::{LazyCreateBuilder};
 
@@ -20,11 +20,8 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         }
         true
     } else {
-        let has_patches = match &instance.spec {
-            PackageSpec::Service(spec) => !spec.patch_foreign.is_empty(),
-            PackageSpec::ConfExt(spec) => !spec.patch_foreign.is_empty(),
-            PackageSpec::Base(spec) => !spec.patch_foreign.is_empty(),
-        };
+        let has_patches = !instance.patch_foreign.is_empty();
+
         has_patches || instance
             .config()
             .values()
@@ -70,13 +67,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             }
         }
 
-        let patches = match &instance.spec {
-            PackageSpec::Service(spec) => &spec.patch_foreign,
-            PackageSpec::ConfExt(spec) => &spec.patch_foreign,
-            PackageSpec::Base(spec) => &spec.patch_foreign,
-        };
-
-        for (dest, _) in patches {
+        for (dest, _) in instance.patch_foreign {
             files_no_await.insert(format!("{}.distrib", dest));
         }
 
