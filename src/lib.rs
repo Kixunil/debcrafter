@@ -632,6 +632,7 @@ pub enum ConfFormat {
     Toml,
     Yaml,
     Json,
+    SpaceSeparated,
 }
 
 impl fmt::Display for ConfFormat {
@@ -641,6 +642,7 @@ impl fmt::Display for ConfFormat {
             ConfFormat::Toml => write!(f, "toml"),
             ConfFormat::Yaml => write!(f, "yaml"),
             ConfFormat::Json => write!(f, "json"),
+            ConfFormat::SpaceSeparated => write!(f, "space_separated"),
         }
     }
 }

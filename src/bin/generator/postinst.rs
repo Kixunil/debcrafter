@@ -195,6 +195,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
                 writeln!(self.out, "echo -n '\"{}\": {{' >> \"{}\"", name, config.file_name)?;
                 self.var_written = false;
             },
+            ConfFormat::SpaceSeparated => panic!("Space separated format doesn't support structured configuration"),
         }
         Ok(())
     }
@@ -211,6 +212,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
                 writeln!(self.out, "echo -n '}}' >> \"{}\"", config.file_name)?;
                 self.var_written = true;
             },
+            ConfFormat::SpaceSeparated => panic!("Space separated format doesn't support structured configuration"),
         }
         Ok(())
     }
@@ -452,6 +454,12 @@ fn write_var_plain<W: Write>(mut out: W, config: &Config, name: &str) -> io::Res
     writeln!(&mut out, "EOF")
 }
 
+fn write_var_space_separated<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
+    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
+    writeln!(&mut out, "{} $RET", name)?;
+    writeln!(&mut out, "EOF")
+}
+
 fn write_stringly_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
     writeln!(&mut out, "echo -n \"{}=\\\"\" >> \"{}\"", name, config.file_name)?;
     writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
@@ -527,6 +535,7 @@ fn write_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) ->
         (ConfFormat::Json, VarType::Path { .. }) => write_stringly_json(&mut out, config, name),
         (ConfFormat::Json, _) => write_unquoted_json(&mut out, config, name),
         (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
+        (ConfFormat::SpaceSeparated, _) => write_var_space_separated(&mut out, config, name),
     }
 }
 
@@ -555,6 +564,7 @@ fn write_nonempty_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &Va
         */
         (ConfFormat::Json, _) => unimplemented!("Unimplemented because of commas"),
         (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
+        (ConfFormat::SpaceSeparated, _) => write_var_space_separated(&mut out, config, name),
     }?;
     writeln!(&mut out, "else")?;
     writeln!(&mut out, "if [[ $opts =~ e ]]; then set -e; fi")?;
