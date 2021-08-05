@@ -129,7 +129,7 @@ fn gen_control(deb_dir: &Path, name: &str, source: &Source, maintainer: &str, ne
     writeln!(out, "Maintainer: {}", maintainer)?;
     write!(out, "Build-Depends: debhelper (>= 9)")?;
     if needs_dh_systemd {
-        write!(out, ",\n               dh-systemd (>= 1.15.5)")?;
+        write!(out, ",\n               debhelper (>= 12.1.1)")?;
     }
     for build_dep in &source.build_depends {
         write!(out, ",\n               {}", build_dep)?;
@@ -197,7 +197,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     let mut deps = Set::new();
     let mut deps_opt = dep_file.as_mut().map(|_| { &mut deps });
 
-    // TODO: calculate dh-systemd dep instead
+    // TODO: calculate debhelper dep instead
     gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
     std::fs::write(deb_dir.join("compat"), "12\n").expect("Failed to write debian/compat");
 
