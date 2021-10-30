@@ -156,6 +156,37 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
     let mut triggers = Set::<Cow<str>>::new();
     let mut interested = Set::<String>::new();
     let mut needs_stopped_service = false;
+
+    for (conf_name, config) in package.config() {
+        if let ConfType::Dynamic { ivars, evars, format, insert_header, with_header, .. } = &config.conf_type {
+            let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name.expand(package.constants_by_variant()));
+            // Manual scope due to borrowing issues.
+            {
+                let config_ctx = Config {
+                    package_name: package.config_pkg_name(),
+                    file_name: &file_name,
+                    insert_header: insert_header.as_ref().map(|header| header.expand_to_cow(package.constants_by_variant())),
+                    with_header: *with_header,
+                    format,
+                    public: config.public,
+                    extension: package.is_conf_ext(),
+                    change_group: package.service_group(),
+                };
+
+                for var in ivars.keys() {
+                    handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
+                }
+
+                for (pkg_name, vars) in evars {
+                    let pkg_name = pkg_name.expand_to_cow(package.variant());
+                    for (var, _var_spec) in vars {
+                        handler.fetch_var(&config_ctx, &pkg_name, var)?;
+                    }
+                }
+            }
+        }
+    }
+
     for (conf_name, config) in package.config() {
         if let ConfType::Dynamic { ivars, evars, hvars, fvars, format, comment, insert_header, with_header, .. } = &config.conf_type {
             let file_name = format!("/etc/{}/{}", package.config_sub_dir(), conf_name.expand(package.constants_by_variant()));
@@ -174,18 +205,6 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 handler.prepare_config(&config_ctx)?;
                 if let Some(comment) = comment {
                     handler.write_comment(&config_ctx, comment)?;
-                }
-
-                for var in ivars.keys() {
-                    handler.fetch_var(&config_ctx, config_ctx.package_name, var)?;
-                }
-
-                for (pkg_name, vars) in evars {
-                    let pkg_name = pkg_name.expand_to_cow(package.variant());
-                    for (var, _var_spec) in vars {
-                        handler.fetch_var(&config_ctx, &pkg_name, var)?;
-                    }
-
                 }
 
                 for (var, var_spec) in hvars {
