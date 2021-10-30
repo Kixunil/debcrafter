@@ -38,6 +38,7 @@ impl<D: fmt::Display> fmt::Display for DisplayEscaped<D> {
 struct SduHandler<H: WriteHeader> {
     out: LazyCreate<H>,
     var_written: bool,
+    var_depth: usize,
 }
 
 fn new_sdu_handler(out: LazyCreateBuilder) -> SduHandler<impl WriteHeader> {
@@ -48,7 +49,139 @@ fn new_sdu_handler(out: LazyCreateBuilder) -> SduHandler<impl WriteHeader> {
     SduHandler {
         out: out,
         var_written: false,
+        var_depth: 0,
     }
+}
+
+impl<H: WriteHeader> SduHandler<H> {
+    fn write_fetch_var(&mut self, package_name: &str, var_name: &str) -> io::Result<()> {
+        writeln!(self.out, "db_get {}/{}", package_name, var_name)?;
+        writeln!(self.out, "CONFIG[\"{}/{}\"]=\"$RET\"", package_name, var_name)
+    }
+
+    fn write_var_plain(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "cat << EOF >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "{}=$RET", name)?;
+        writeln!(self.out, "EOF")
+    }
+
+    fn write_var_space_separated(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "cat << EOF >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "{} $RET", name)?;
+        writeln!(self.out, "EOF")
+    }
+
+    fn write_stringly_toml(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "echo -n \"{}=\\\"\" >> \"{}\"", name, config.file_name)?;
+        writeln!(self.out, "if [ $(cat << EOF | wc -c")?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, ") -gt 1 ]; then")?;
+        writeln!(self.out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, "else")?;
+        writeln!(self.out, "echo '\"' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "fi")
+    }
+
+    fn write_unquoted_toml(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "cat << EOF >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "{} = $RET", name)?;
+        writeln!(self.out, "EOF")
+    }
+
+    fn write_stringly_yaml(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "echo -n \"{}{}: \\\"\" >> \"{}\"", Indent(4*self.var_depth), name, config.file_name)?;
+        writeln!(self.out, "if [ $(cat << EOF | wc -c")?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, ") -gt 1 ]; then")?;
+        writeln!(self.out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, "else")?;
+        writeln!(self.out, "echo '\"' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "fi")
+    }
+
+    fn write_unquoted_yaml(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "cat << EOF >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "{}{}: $RET", Indent(4*self.var_depth), name)?;
+        writeln!(self.out, "EOF")
+    }
+
+    fn write_stringly_json(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "echo -n \"\\\"{}\\\": \\\"\" >> \"{}\"", name, config.file_name)?;
+        writeln!(self.out, "if [ $(cat << EOF | wc -c")?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, ") -gt 1 ]; then")?;
+        writeln!(self.out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, "else")?;
+        writeln!(self.out, "echo '\"' >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "fi")
+    }
+
+    fn write_unquoted_json(&mut self, config: &Config, name: &str) -> io::Result<()> {
+        writeln!(self.out, "cat << EOF >> \"{}\"", config.file_name)?;
+        writeln!(self.out, "\"{}\": $RET", name)?;
+        writeln!(self.out, "EOF")
+    }
+
+    fn write_maybe_empty_var(&mut self, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
+        match (config.format, ty) {
+            (ConfFormat::Toml, VarType::String) |
+            (ConfFormat::Toml, VarType::BindHost) |
+            (ConfFormat::Toml, VarType::Path { .. }) => self.write_stringly_toml(config, name),
+            (ConfFormat::Toml, _) => self.write_unquoted_toml(config, name),
+            (ConfFormat::Yaml, VarType::String) |
+            (ConfFormat::Yaml, VarType::BindHost) |
+            (ConfFormat::Yaml, VarType::Path { .. }) => self.write_stringly_yaml(config, name),
+            (ConfFormat::Yaml, _) => self.write_unquoted_yaml(config, name),
+            (ConfFormat::Json, VarType::String) |
+            (ConfFormat::Json, VarType::BindHost) |
+            (ConfFormat::Json, VarType::Path { .. }) => self.write_stringly_json(config, name),
+            (ConfFormat::Json, _) => self.write_unquoted_json(config, name),
+            (ConfFormat::Plain, _) => self.write_var_plain(config, name),
+            (ConfFormat::SpaceSeparated, _) => self.write_var_space_separated(config, name),
+        }
+    }
+
+    fn write_nonempty_var(&mut self, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
+        writeln!(self.out, "opts=$-")?;
+        writeln!(self.out, "set +e")?;
+        writeln!(self.out, "grep -q '^..*$' << EOF")?;
+        writeln!(self.out, "$RET")?;
+        writeln!(self.out, "EOF")?;
+        writeln!(self.out, "if [ $? -eq 0 ]; then")?;
+        writeln!(self.out, "if [[ $opts =~ e ]]; then set -e; fi")?;
+        match (config.format, ty) {
+            (ConfFormat::Toml, VarType::String) |
+            (ConfFormat::Toml, VarType::BindHost) |
+            (ConfFormat::Toml, VarType::Path { .. }) => self.write_stringly_toml(config, name),
+            (ConfFormat::Toml, _) => self.write_unquoted_toml(config, name),
+            (ConfFormat::Yaml, VarType::String) |
+            (ConfFormat::Yaml, VarType::BindHost) |
+            (ConfFormat::Yaml, VarType::Path { .. }) => self.write_stringly_yaml(config, name),
+            (ConfFormat::Yaml, _) => self.write_unquoted_yaml(config, name),
+            /*
+            (ConfFormat::Json, VarType::String) |
+            (ConfFormat::Json, VarType::BindHost) |
+            (ConfFormat::Json, VarType::Path { .. }) => self.write_stringly_json(config, name),
+            (ConfFormat::Json, _) => self.write_unquoted_json(config, name),
+            */
+            (ConfFormat::Json, _) => unimplemented!("Unimplemented because of commas"),
+            (ConfFormat::Plain, _) => self.write_var_plain(config, name),
+            (ConfFormat::SpaceSeparated, _) => self.write_var_space_separated(config, name),
+        }?;
+        writeln!(self.out, "else")?;
+        writeln!(self.out, "if [[ $opts =~ e ]]; then set -e; fi")?;
+        writeln!(self.out, "fi")
+    }
+
 }
 
 impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
@@ -148,7 +281,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 
     fn fetch_var(&mut self, _config: &Config, package: &str, name: &str) -> Result<(), Self::Error> {
-        write_fetch_var(&mut self.out, package, name)
+        self.write_fetch_var(package, name)
     }
 
     fn generate_const_var(&mut self, _config: &Config, package: &str, name: &str, _ty: &VarType, val: &str) -> Result<(), Self::Error> {
@@ -186,7 +319,10 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         match config.format {
             ConfFormat::Plain => panic!("Plain format doesn't support structured configuration"),
             ConfFormat::Toml => unimplemented!("Structured configuration not implemented for toml"),
-            ConfFormat::Yaml => unimplemented!("Structured configuration not implemented for yaml"),
+            ConfFormat::Yaml => {
+                writeln!(self.out, "echo \"{}{}:\" >> \"{}\"", Indent(4*self.var_depth), name, config.file_name)?;
+                self.var_depth += 1;
+            },
             ConfFormat::Json => {
                 if self.var_written {
                     writeln!(self.out, "echo ',' >> \"{}\"", config.file_name)?;
@@ -205,7 +341,7 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         match &config.format {
             ConfFormat::Plain => panic!("Plain format doesn't support structured configuration"),
             ConfFormat::Toml => unimplemented!("Structured configuration not implemented for toml"),
-            ConfFormat::Yaml => unimplemented!("Structured configuration not implemented for yaml"),
+            ConfFormat::Yaml => self.var_depth -= 1,
             ConfFormat::Json => {
                 if self.var_written {
                     writeln!(self.out, "echo >> \"{}\"", config.file_name)?;
@@ -231,9 +367,9 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         }
 
         if ignore_empty {
-            write_nonempty_var(&mut self.out, config, out_var, ty)?;
+            self.write_nonempty_var(config, out_var, ty)?;
         } else {
-            write_var(&mut self.out, config, out_var, ty)?;
+            self.write_maybe_empty_var(config, out_var, ty)?;
         }
         self.var_written = true;
         writeln!(self.out)
@@ -266,6 +402,23 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
                 writeln!(self.out, "\tdone")?;
                 writeln!(self.out, "fi")?;
                 writeln!(self.out, "echo \"]\" >> \"{}\"", out_file)?;
+            },
+            (ConfFormat::Yaml, FileVar::Dir {repr: DirRepr::Array, path, .. }) => {
+                let mut out_var = structure.next().expect("Empty structure");
+                for var in structure {
+                    out_var = var;
+                }
+                let out_file = config.file_name;
+                let in_dir = format!("/etc/{}/{}/", subdir, path);
+                writeln!(self.out, "echo >> \"{}\"", config.file_name)?;
+                writeln!(self.out, "echo \"{}{}:\" >> \"{}\"", Indent(4*self.var_depth), out_var, out_file)?;
+                writeln!(self.out, "if [ -d \"{}\" ] && [ `ls \"{}\" | wc -l` -gt 0 ];", in_dir, in_dir)?;
+                writeln!(self.out, "then")?;
+                writeln!(self.out, "\tfor file in \"{}\"/*", in_dir)?;
+                writeln!(self.out, "\tdo")?;
+                writeln!(self.out, "\t\tsed -e '1,1s/^/{}    - /' -e '2,$s/^/{}      /' \"$file\" >> \"{}\"", Indent(4*self.var_depth), Indent(4*self.var_depth), out_file)?;
+                writeln!(self.out, "\tdone")?;
+                writeln!(self.out, "fi")?;
             },
             (ConfFormat::Plain, _) => panic!("Plain config format doesn't support file variables"),
             (x, FileVar::Dir {repr: DirRepr::Array, .. }) => unimplemented!("File variables not implemented for {}", x),
@@ -444,137 +597,20 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     }
 }
 
-fn write_fetch_var<W: Write>(mut out: W, package_name: &str, var_name: &str) -> io::Result<()> {
-    writeln!(&mut out, "db_get {}/{}", package_name, var_name)?;
-    writeln!(&mut out, "CONFIG[\"{}/{}\"]=\"$RET\"", package_name, var_name)
-}
-
-fn write_var_plain<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "{}=$RET", name)?;
-    writeln!(&mut out, "EOF")
-}
-
-fn write_var_space_separated<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "{} $RET", name)?;
-    writeln!(&mut out, "EOF")
-}
-
-fn write_stringly_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "echo -n \"{}=\\\"\" >> \"{}\"", name, config.file_name)?;
-    writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, ") -gt 1 ]; then")?;
-    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, "else")?;
-    writeln!(&mut out, "echo '\"' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "fi")
-}
-
-fn write_unquoted_toml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "{} = $RET", name)?;
-    writeln!(&mut out, "EOF")
-}
-
-fn write_stringly_yaml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "echo -n \"{}: \\\"\" >> \"{}\"", name, config.file_name)?;
-    writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, ") -gt 1 ]; then")?;
-    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, "else")?;
-    writeln!(&mut out, "echo '\"' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "fi")
-}
-
-fn write_unquoted_yaml<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "{}: $RET", name)?;
-    writeln!(&mut out, "EOF")
-}
-
-fn write_stringly_json<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "echo -n \"\\\"{}\\\": \\\"\" >> \"{}\"", name, config.file_name)?;
-    writeln!(&mut out, "if [ $(cat << EOF | wc -c")?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, ") -gt 1 ]; then")?;
-    writeln!(&mut out, "cat << EOF | perl -pe 'chomp if eof' | sed -e 's/\\\\/\\\\\\\\/' -e 's/\"/\\\\\"/' | awk 1 ORS='\\n' | sed 's/$/\"/' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, "else")?;
-    writeln!(&mut out, "echo '\"' >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "fi")
-}
-
-fn write_unquoted_json<W: Write>(mut out: W, config: &Config, name: &str) -> io::Result<()> {
-    writeln!(&mut out, "cat << EOF >> \"{}\"", config.file_name)?;
-    writeln!(&mut out, "\"{}\": $RET", name)?;
-    writeln!(&mut out, "EOF")
-}
-
-fn write_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
-    match (config.format, ty) {
-        (ConfFormat::Toml, VarType::String) |
-        (ConfFormat::Toml, VarType::BindHost) |
-        (ConfFormat::Toml, VarType::Path { .. }) => write_stringly_toml(&mut out, config, name),
-        (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
-        (ConfFormat::Yaml, VarType::String) |
-        (ConfFormat::Yaml, VarType::BindHost) |
-        (ConfFormat::Yaml, VarType::Path { .. }) => write_stringly_yaml(&mut out, config, name),
-        (ConfFormat::Yaml, _) => write_unquoted_yaml(&mut out, config, name),
-        (ConfFormat::Json, VarType::String) |
-        (ConfFormat::Json, VarType::BindHost) |
-        (ConfFormat::Json, VarType::Path { .. }) => write_stringly_json(&mut out, config, name),
-        (ConfFormat::Json, _) => write_unquoted_json(&mut out, config, name),
-        (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
-        (ConfFormat::SpaceSeparated, _) => write_var_space_separated(&mut out, config, name),
-    }
-}
-
-fn write_nonempty_var<W: Write>(mut out: W, config: &Config, name: &str, ty: &VarType) -> io::Result<()> {
-    writeln!(&mut out, "opts=$-")?;
-    writeln!(&mut out, "set +e")?;
-    writeln!(&mut out, "grep -q '^..*$' << EOF")?;
-    writeln!(&mut out, "$RET")?;
-    writeln!(&mut out, "EOF")?;
-    writeln!(&mut out, "if [ $? -eq 0 ]; then")?;
-    writeln!(&mut out, "if [[ $opts =~ e ]]; then set -e; fi")?;
-    match (config.format, ty) {
-        (ConfFormat::Toml, VarType::String) |
-        (ConfFormat::Toml, VarType::BindHost) |
-        (ConfFormat::Toml, VarType::Path { .. }) => write_stringly_toml(&mut out, config, name),
-        (ConfFormat::Toml, _) => write_unquoted_toml(&mut out, config, name),
-        (ConfFormat::Yaml, VarType::String) |
-        (ConfFormat::Yaml, VarType::BindHost) |
-        (ConfFormat::Yaml, VarType::Path { .. }) => write_stringly_yaml(&mut out, config, name),
-        (ConfFormat::Yaml, _) => write_unquoted_yaml(&mut out, config, name),
-        /*
-        (ConfFormat::Json, VarType::String) |
-        (ConfFormat::Json, VarType::BindHost) |
-        (ConfFormat::Json, VarType::Path { .. }) => write_stringly_json(&mut out, config, name),
-        (ConfFormat::Json, _) => write_unquoted_json(&mut out, config, name),
-        */
-        (ConfFormat::Json, _) => unimplemented!("Unimplemented because of commas"),
-        (ConfFormat::Plain, _) => write_var_plain(&mut out, config, name),
-        (ConfFormat::SpaceSeparated, _) => write_var_space_separated(&mut out, config, name),
-    }?;
-    writeln!(&mut out, "else")?;
-    writeln!(&mut out, "if [[ $opts =~ e ]]; then set -e; fi")?;
-    writeln!(&mut out, "fi")
-}
-
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let handler = new_sdu_handler(out);
     debcrafter::postinst::handle_instance(handler, instance)
+}
+
+struct Indent(usize);
+
+impl fmt::Display for Indent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for _ in 0..self.0 {
+            f.write_str(" ")?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
