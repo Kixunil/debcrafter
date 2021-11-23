@@ -615,15 +615,20 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     handler.trigger_config_changed(instance)?;
     for plug in instance.plug {
         let user = plug.run_as_user.expand_to_cow(instance.constants_by_variant());
-        let group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
-        let privileges = CommandPrivileges {
-            user: &user,
-            group: &group,
-            allow_new_privileges: false,
+        let group;
+        let restrict_privileges = if user != "root" {
+            group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
+            Some(CommandPrivileges {
+                user: &user,
+                group: &group,
+                allow_new_privileges: false,
+            })
+        } else {
+            None
         };
 
         let env = CommandEnv {
-            restrict_privileges: Some(privileges),
+            restrict_privileges,
         };
 
         handler.run_command(plug.register_cmd.iter().map(|arg| arg.expand(instance.constants_by_variant())), &env)?;

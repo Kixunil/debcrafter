@@ -50,15 +50,20 @@ fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Re
 fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
     for plug in instance.plug.iter().rev() {
         let user = plug.run_as_user.expand_to_cow(instance.constants_by_variant());
-        let group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
-        let privileges = CommandPrivileges {
-            user: &user,
-            group: &group,
-            allow_new_privileges: false,
+        let group;
+        let restrict_privileges = if user != "root" {
+            group = plug.run_as_group.as_ref().map(|group| group.expand_to_cow(instance.constants_by_variant())).unwrap_or(Cow::Borrowed(&*user));
+            Some(CommandPrivileges {
+                user: &user,
+                group: &group,
+                allow_new_privileges: false,
+            })
+        } else {
+            None
         };
 
         let env = CommandEnv {
-            restrict_privileges: Some(privileges),
+            restrict_privileges,
         };
 
         let mut iter = plug.unregister_cmd.iter().map(|arg| arg.expand(instance.constants_by_variant()));
