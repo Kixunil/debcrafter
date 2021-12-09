@@ -5,6 +5,8 @@ use void::Void;
 use std::io;
 use std::path::PathBuf;
 
+pub mod bash;
+
 pub fn paragraph<W: io::Write>(mut dest: W, text: &str) -> io::Result<()> {
     let mut write_dot = false;
     for line in text.split('\n') {

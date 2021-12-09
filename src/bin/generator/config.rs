@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, DebconfPriority};
 use crate::codegen::{LazyCreateBuilder};
-use crate::generator::postinst::DisplayEscaped;
+use std::borrow::Cow;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let header = "#!/bin/bash
@@ -43,7 +43,12 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                         writeln!(out, "db_fget {}/{} seen", instance.name, var_name)?;
                         writeln!(out, "if [ \"$RET\" '!=' 'true' ];")?;
                         writeln!(out, "then")?;
-                        writeln!(out, "\tif default_value=\"$(setpriv --reuid=nobody --regid=nogroup --init-groups --inh-caps=-all --no-new-privs bash -c {})\";", DisplayEscaped(try_overwrite_default.expand(instance.constants_by_variant())))?;
+                        write!(out, "\tif default_value=\"$(")?;
+                        fmt2io::write(&mut out, |writer|
+                            crate::codegen::bash::SecureCommand::new("bash", &[Cow::Borrowed("-c"), try_overwrite_default.expand_to_cow(instance.constants_by_variant())], "nobody", "nogroup")
+                                .generate_script(writer)
+                        )?;
+                        writeln!(out, ")\";")?;
                         writeln!(out, "\tthen")?;
                         writeln!(out, "\t\tdb_set {}/{} \"$default_value\"", instance.name, var_name)?;
                         writeln!(out, "\t\tdb_fset {}/{} seen false", instance.name, var_name)?;

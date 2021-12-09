@@ -552,20 +552,19 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     fn run_command<I>(&mut self, command: I, env: &CommandEnv<'_>) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display {
         let mut iter = command.into_iter();
         write!(self.out, "MAINTSCRIPT_ACTION=\"$1\" MAINTSCRIPT_VERSION=\"$2\" ")?;
-        if let Some(restrictions) = &env.restrict_privileges {
-            write!(self.out, "setpriv --reuid={} --regid={} --init-groups --inh-caps=-all", restrictions.user, restrictions.group)?;
-            if !restrictions.allow_new_privileges {
-                write!(self.out, " --no-new-privs")?;
-            }
-            write!(self.out, " -- ")?;
-        }
-        // sanity check
-        write!(self.out, "{}", iter.next().expect("Can't run command: missing program name"))?;
-        for arg in iter {
-            write!(self.out, " {}", DisplayEscaped(arg))?;
-        }
-        writeln!(self.out)?;
-        Ok(())
+        let (user, group, allow_new_privs) = if let Some(restrictions) = &env.restrict_privileges {
+            (restrictions.user, restrictions.group, restrictions.allow_new_privileges)
+        } else {
+            ("root", "root", true)
+        };
+        let program = iter.next().expect("Can't run command: missing program name").to_string();
+        fmt2io::write(&mut self.out, |writer|
+            crate::codegen::bash::SecureCommand::new(&program, iter, user, group)
+                .allow_new_privileges(allow_new_privs)
+                .keep_env(true)
+                .generate_script(writer)
+        )?;
+        writeln!(self.out)
     }
 
     fn finalize_migrations(&mut self, migrations: &Map<MigrationVersion, Migration>, constatnts: ConstantsByVariant<'_>) -> Result<(), Self::Error> {

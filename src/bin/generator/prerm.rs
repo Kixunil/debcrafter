@@ -3,7 +3,6 @@ use std::borrow::Cow;
 use debcrafter::im_repr::{PackageInstance, PackageOps};
 use debcrafter::postinst::{CommandEnv, CommandPrivileges};
 use crate::codegen::{LazyCreateBuilder};
-use crate::generator::postinst::DisplayEscaped;
 
 fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
     let mut written = false;
@@ -69,18 +68,18 @@ fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Resul
         let mut iter = plug.unregister_cmd.iter().map(|arg| arg.expand(instance.constants_by_variant()));
 
         write!(out, "MAINTSCRIPT_ACTION=\"$1\" MAINTSCRIPT_VERSION=\"$2\" ")?;
-        if let Some(restrictions) = &env.restrict_privileges {
-            write!(out, "setpriv --reuid={} --regid={} --init-groups --inh-caps=-all", restrictions.user, restrictions.group)?;
-            if !restrictions.allow_new_privileges {
-                write!(out, " --no-new-privs")?;
-            }
-            write!(out, " -- ")?;
-        }
-        // sanity check
-        write!(out, "{}", iter.next().expect("Can't run command: missing program name"))?;
-        for arg in iter {
-            write!(out, " {}", DisplayEscaped(arg))?;
-        }
+        let (user, group, allow_new_privs) = if let Some(restrictions) = &env.restrict_privileges {
+            (restrictions.user, restrictions.group, restrictions.allow_new_privileges)
+        } else {
+            ("root", "root", true)
+        };
+        let program = iter.next().expect("Can't run command: missing program name").to_string();
+        fmt2io::write(&mut out, |writer|
+            crate::codegen::bash::SecureCommand::new(&program, iter, user, group)
+                .allow_new_privileges(allow_new_privs)
+                .keep_env(true)
+                .generate_script(writer)
+        )?;
         writeln!(out)?;
     }
     Ok(())

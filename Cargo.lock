@@ -5,6 +5,7 @@ name = "debcrafter"
 version = "0.2.0"
 dependencies = [
  "either",
+ "fmt2io",
  "itertools",
  "linked-hash-map",
  "serde",
@@ -19,6 +20,12 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
+
+[[package]]
+name = "fmt2io"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9404d2b1fefa46590726ba6c729bfb18ac6e2a2efdfb094aeb53df1c0436376f"
 
 [[package]]
 name = "itertools"
