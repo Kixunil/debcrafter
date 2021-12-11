@@ -41,6 +41,19 @@ impl VPackageName {
             (Some(_), false) | (None, false) => Cow::Borrowed(&self.0),
         }
     }
+
+    pub fn as_raw(&self) -> &str {
+        &self.0
+    }
+
+    fn parse(string: impl std::ops::Deref<Target=str> + Into<String>) -> Result<Self, VPackageNameError> {
+        for c in Self::_base(&string).chars() {
+            if c != '-' && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+                return Err(VPackageNameError { c, string: string.into() });
+            }
+        }
+        Ok(VPackageName(string.into()))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -54,12 +67,15 @@ impl TryFrom<String> for VPackageName {
     type Error = VPackageNameError;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        for c in Self::_base(&string).chars() {
-            if c != '-' && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
-                return Err(VPackageNameError { c, string });
-            }
-        }
-        Ok(VPackageName(string))
+        Self::parse(string)
+    }
+}
+
+impl<'a> TryFrom<&'a str> for VPackageName {
+    type Error = VPackageNameError;
+
+    fn try_from(string: &'a str) -> Result<Self, Self::Error> {
+        Self::parse(string)
     }
 }
 

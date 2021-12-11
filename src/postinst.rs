@@ -1,5 +1,5 @@
 use crate::{Set, Map};
-use crate::types::{NonEmptyMap, VPackageName};
+use crate::types::{NonEmptyMap, VPackageName, VarName};
 use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess};
 use std::fmt;
 use std::borrow::Cow;
@@ -7,6 +7,7 @@ use itertools::Either;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use crate::template::TemplateString;
+use crate::input::InternalVarCondition;
 
 #[derive(Clone)]
 pub struct Config<'a> {
@@ -55,6 +56,8 @@ pub trait HandlePostinst: Sized {
     fn generate_var_using_template(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, template: &str, constatnts: ConstantsByVariant<'_>) -> Result<(), Self::Error>;
     fn sub_object_begin(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
     fn sub_object_end(&mut self, config: &Config, name: &str) -> Result<(), Self::Error>;
+    fn condition_begin<'a>(&mut self, instance: &impl PackageOps<'a>, conditions: &[InternalVarCondition]) -> Result<(), Self::Error>;
+    fn condition_end(&mut self) -> Result<(), Self::Error>;
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn include_fvar<'a, I>(&mut self, config: &Config, var: &FileVar, structure: I, subdir: &str) -> Result<(), Self::Error> where I: Iterator<Item=&'a str>;
     fn reload_apparmor(&mut self) -> Result<(), Self::Error>;
@@ -81,10 +84,10 @@ fn compute_structure<'a>(name: &'a str, structure: &'a Option<Vec<String>>) -> i
         .unwrap_or(Either::Right(std::iter::once(name)))
 }
 
-#[derive(Debug)]
 struct WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
     structure: I,
     ty: WriteVarType<'a>,
+    conditions: &'a [InternalVarCondition],
 }
 
 #[derive(Debug)]
@@ -216,6 +219,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 }
 
                 let mut write_vars = Vec::new();
+                let mut check_ivars = Set::new();
 
                 for (var, var_spec) in ivars {
                     match (&var_spec.ty, package.variant(), &var_spec.default) {
@@ -228,6 +232,22 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                         _ => (),
                     }
 
+                    for cond in &var_spec.conditions {
+                        if let InternalVarCondition::Var { name, .. } = cond {
+                            match name {
+                                VarName::Internal(var) => assert!(check_ivars.contains(&**var), "Unknown variable {:?}", name),
+                                VarName::Absolute(var_package, var) if var_package.expand_to_cow(package.variant()) == package.config_pkg_name() => assert!(check_ivars.contains(&**var), "Unknown variable {:?}", name),
+                                VarName::Absolute(var_package, var) => {
+                                    let pkg = evars.get(var_package)
+                                        .unwrap_or_else(|| panic!("Unknown variable {:?}", name));
+                                    assert!(pkg.get(&**var).is_some(), "Unknown variable {:?}", name);
+                                },
+                                VarName::Constant(_) => panic!("constants can't be used to skip ivars"),
+                            }
+                        }
+                    }
+                    check_ivars.insert(&**var);
+
                     if var_spec.store {
                         write_vars.push(WriteVar {
                             structure: compute_structure(&var, &var_spec.structure),
@@ -237,6 +257,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                                 name: var,
                                 ignore_empty: var_spec.ignore_empty,
                             },
+                            conditions: &var_spec.conditions,
                         });
                     }
                 }
@@ -265,6 +286,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                                     name: var,
                                     ignore_empty: var_spec.ignore_empty,
                                 },
+                                conditions: &[],
                             });
                         }
                     }
@@ -322,6 +344,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                                 name: var,
                                 ignore_empty: var_spec.ignore_empty,
                             },
+                            conditions: &[],
                         });
                     }
                     hvars_accum.insert(&**var);
@@ -335,6 +358,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                                 ty: WriteVarType::File {
                                     data: var_spec,
                                 },
+                                conditions: &[],
                             });
                         }
                     }
@@ -347,6 +371,9 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 let mut previous = Some(compute_structure("", &STUPID_HACK));
                 previous = None;
                 for var in write_vars {
+                    if !var.conditions.is_empty() {
+                        handler.condition_begin(package, &var.conditions)?;
+                    }
                     if let Some(previous) = previous {
                         let mut cur = var.structure.clone().peekable();
                         // manual impl of peekable for prev because peekable impls
@@ -394,6 +421,10 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                         WriteVarType::File { data, } => handler.include_fvar(&config_ctx, data, var.structure.clone(), &package.config_sub_dir())?,
                     }
                     
+                    if !var.conditions.is_empty() {
+                        handler.condition_end()?;
+                    }
+
                     previous = Some(var.structure);
                 }
 

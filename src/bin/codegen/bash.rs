@@ -1,4 +1,6 @@
 use std::fmt;
+use debcrafter::input::InternalVarCondition;
+use debcrafter::im_repr::PackageOps;
 
 struct ShellEscaper<W: fmt::Write>(W);
 
@@ -145,4 +147,36 @@ impl HidePid {
             HidePid::Strict => 2,
         }
     }
+}
+
+pub(crate) fn write_ivar_conditions<'a, W: fmt::Write, P: PackageOps<'a>>(mut out: W, instance: &P, conditions: &[InternalVarCondition]) -> fmt::Result {
+    let mut first = true;
+    write!(out, "if ")?;
+    for cond in conditions {
+        if !first {
+            write!(&mut out, " && ")?;
+        } else {
+            first = false;
+        }
+        match cond {
+            InternalVarCondition::Var { name, value, } => {
+                write!(&mut out, "[ \"${{CONFIG[{}]}}\" = {} ]", name.expand(instance.config_pkg_name(), instance.variant()).unwrap(), DisplayEscaped(value.expand(instance.constants_by_variant())))?;
+            },
+            InternalVarCondition::Command { run, user, group, invert, } => {
+                let user = user.expand_to_cow(instance.constants_by_variant());
+                let group = group.expand_to_cow(instance.constants_by_variant());
+
+                if *invert {
+                    write!(&mut out, "! ")?;
+                }
+
+		let (program, args) = run.split_first();
+		let args = args.iter().map(|arg| arg.expand(instance.constants_by_variant()));
+		crate::codegen::bash::SecureCommand::new(&program.expand_to_cow(instance.constants_by_variant()), args, &user, &group)
+		    .generate_script(&mut out)?;
+            }
+        }
+    }
+    writeln!(out, ";\nthen")?;
+    Ok(())
 }

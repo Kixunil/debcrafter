@@ -2,12 +2,16 @@ use std::io::{self, Write};
 use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, DebconfPriority};
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
+use debcrafter::input::InternalVarCondition;
+use crate::codegen::bash::write_ivar_conditions;
+use debcrafter::types::VarName;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let header = "#!/bin/bash
 
 . /usr/share/debconf/confmodule
 
+declare -A CONFIG
 ";
     let mut out = out.set_header(header).finalize();
 
@@ -37,8 +41,38 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     for (_, config) in instance.config() {
         match &config.conf_type {
             ConfType::Static { .. } => (),
-            ConfType::Dynamic { ivars, .. } =>  {
+            ConfType::Dynamic { ivars, .. } => {
                 for (var_name, var) in ivars {
+                    if !var.conditions.is_empty() {
+                        let mut has_our_var = false;
+                        for cond in &var.conditions {
+
+                            match cond {
+                                InternalVarCondition::Var { name, value: _, } => {
+                                    // TODO: we could actually allow this to show certain options
+                                    // only for specific variants but the logic is quite different.
+                                    let needs_db_go = match name {
+                                        VarName::Internal(_) => true,
+                                        VarName::Absolute(package, _) => package.expand_to_cow(instance.variant()) == instance.name,
+                                        VarName::Constant(_) => panic!("constants unsupported"),
+                                    };
+                                    if needs_db_go && !has_our_var {
+                                        writeln!(out, "db_go")?;
+                                        has_our_var = true;
+                                    }
+                                    let name = name
+                                        .expand(&instance.name, instance.variant())
+                                        .expect("constants can't be used to skip ivars");
+                                    writeln!(out, "db_get {}", name)?;
+                                    writeln!(out, "CONFIG[\"{}\"]=\"$RET\"", name)?;
+                                },
+                                InternalVarCondition::Command { .. } => (),
+                            }
+                        }
+                        if !var.conditions.is_empty() {
+                            fmt2io::write(&mut out, |out| write_ivar_conditions(out, instance, &var.conditions))?;
+                        }
+                    }
                     if let Some(try_overwrite_default) = &var.try_overwrite_default {
                         writeln!(out, "db_fget {}/{} seen", instance.name, var_name)?;
                         writeln!(out, "if [ \"$RET\" '!=' 'true' ];")?;
@@ -65,6 +99,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                     };
 
                     writeln!(out, "{}\ndb_input $PRIORITY {}/{}", priority, instance.name, var_name)?;
+                    if !var.conditions.is_empty() {
+                        writeln!(out, "fi")?;
+                    }
                 }
             },
         }

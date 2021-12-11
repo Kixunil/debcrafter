@@ -1,11 +1,13 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageInstance, ServiceInstance, ConstantsByVariant, ConfFormat, VarType, FileType, FileVar, DirRepr, Migration, MigrationVersion};
+use debcrafter::im_repr::{PackageInstance, ServiceInstance, ConstantsByVariant, ConfFormat, VarType, FileType, FileVar, DirRepr, Migration, MigrationVersion, PackageOps};
 use debcrafter::Map;
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
 use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config, CreateDbRequest, CommandEnv};
 use std::convert::TryFrom;
+use crate::codegen::bash::write_ivar_conditions;
+use debcrafter::input::InternalVarCondition;
 
 struct ShellEscaper<W: fmt::Write>(W);
 
@@ -352,6 +354,14 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
             ConfFormat::SpaceSeparated => panic!("Space separated format doesn't support structured configuration"),
         }
         Ok(())
+    }
+
+    fn condition_begin<'a>(&mut self, instance: &impl PackageOps<'a>, conditions: &[InternalVarCondition]) -> Result<(), Self::Error> {
+        fmt2io::write(&mut self.out, |writer| write_ivar_conditions(writer, instance, conditions))
+    }
+
+    fn condition_end(&mut self) -> Result<(), Self::Error> {
+        writeln!(self.out, "fi")
     }
 
     fn write_var<'a, I>(&mut self, config: &Config, package: &str, name: &str, ty: &VarType, structure: I, ignore_empty: bool) -> Result<(), Self::Error> where I: IntoIterator<Item=&'a str> {

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::convert::TryFrom;
 use crate::template::TemplateString;
 use linked_hash_map::LinkedHashMap;
-use crate::types::{VPackageName, Variant};
+use crate::types::{VPackageName, Variant, NonEmptyVec, VarName};
 
 use super::{Map, Set};
 
@@ -519,7 +519,7 @@ pub enum ConfType {
         #[serde(default)]
         with_header: bool,
         #[serde(default)]
-        ivars: Map<String, InternalVar>,
+        ivars: LinkedHashMap<String, InternalVar>,
         #[serde(default)]
         evars: Map<VPackageName, Map<String, ExternalVar>>,
         #[serde(default)]
@@ -598,7 +598,17 @@ pub struct InternalVar {
     pub store: bool,
     #[serde(default)]
     pub ignore_empty: bool,
+    #[serde(default)]
     pub structure: Option<Vec<String>>,
+    #[serde(default)]
+    pub conditions: Vec<InternalVarCondition>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InternalVarCondition {
+    Var { name: VarName<'static>, value: TemplateString, },
+    Command { run: NonEmptyVec<TemplateString>, user: TemplateString, group: TemplateString, #[serde(default)] invert: bool, },
 }
 
 #[derive(Deserialize)]
