@@ -1,10 +1,10 @@
 use crate::codegen::{LazyCreateBuilder};
-use debcrafter::im_repr::{PackageOps, PackageInstance, PackageSpec, ConfType};
+use debcrafter::im_repr::{PackageOps, PackageInstance, PackageSpec, ConfType, Architecture};
 use debcrafter::Set;
 use std::io::{self, Write};
+use std::borrow::Cow;
 
-fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &str) -> impl 'a + IntoIterator<Item=impl 'a + std::fmt::Display> {
-    use std::borrow::Cow;
+fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &str) -> impl 'a + Iterator<Item=impl 'a + std::fmt::Display + Into<Cow<'a, str>>> {
 
     const PREFIX: &str = "dbconfig-";
     const DELIMITER: &str = " | ";
@@ -73,6 +73,7 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         .chain(systemd_deps)
         // This avoids duplicates
         .collect::<Set<Cow<'_, _>>>()
+        .into_iter()
 }
 
 fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: io::Write, I: IntoIterator, <I as IntoIterator>::Item: std::fmt::Display {
@@ -87,54 +88,96 @@ fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: 
     Ok(())
 }
 
+#[derive(serde_derive::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Priority {
+    Optional,
+}
+
+#[derive(serde_derive::Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct Package<'a> {
+    package: &'a str,
+    priority: Priority,
+    architecture: Architecture,
+    depends: &'a [Cow<'a, str>],
+    recommends: &'a [Cow<'a, str>],
+    suggests: &'a [Cow<'a, str>],
+    provides: &'a [Cow<'a, str>],
+    conflicts: &'a [Cow<'a, str>],
+    enhances: &'a [Cow<'a, str>],
+    replaces: &'a [Cow<'a, str>],
+    description: &'a str,
+}
+
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str, buildsystem: Option<&str>) -> io::Result<()> {
     use debcrafter::im_repr::BoolOrVecTemplateString;
+    use std::fmt::Write;
 
     let mut out = out.finalize();
 
     writeln!(out)?;
-    writeln!(out, "Package: {}", instance.name)?;
-    writeln!(out, "Priority: optional")?;
+
     let architecture = match &instance.spec {
         PackageSpec::Base(base) => &base.architecture,
-        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => &debcrafter::im_repr::Architecture::All,
+        PackageSpec::Service(_) | PackageSpec::ConfExt(_) => &Architecture::All,
     };
-    writeln!(out, "Architecture: {}", architecture)?;
-    write!(out, "Depends: ")?;
-    for dep in calculate_dependencies(instance, upstream_version) {
-        write!(out, "{},\n         ", dep)?;
-    }
-    write!(out, "${{misc:Depends}} ${{shlibs:Depends}}")?;
-    if let Some("pybuild") = buildsystem {
-        write!(out, "${{python3:Depends}}")?;
-    }
 
-    writeln!(out)?;
+    let python_depends = match buildsystem {
+        Some("pybuild") => Some(Cow::Borrowed("${python3:Depends}")),
+        _ => None,
+    };
 
-    write_deps(&mut out, "Suggests", instance.suggests.iter().chain(instance.extended_by).map(|suggested| suggested.expand(instance.constants_by_variant())))?;
-    write_deps(&mut out, "Provides", instance.provides.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
-    write_deps(&mut out, "Conflicts", instance.conflicts.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
+    let fixed_depends = std::iter::once(Cow::Borrowed("${misc:Depends}"))
+        .chain(std::iter::once(Cow::Borrowed("${shlibs:Depends}")))
+        .chain(python_depends);
 
-    if let PackageSpec::ConfExt(confext) = &instance.spec {
-        if confext.depends_on_extended {
-            write_deps(&mut out, "Recommends", instance.recommends.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
+    let depends = fixed_depends.chain(calculate_dependencies(instance, upstream_version).map(Into::into)).collect::<Vec<_>>();
+    let suggests = instance.suggests.iter().chain(instance.extended_by).map(|suggested| suggested.expand_to_cow(instance.constants_by_variant())).collect::<Vec<_>>();
+    let provides = instance.provides.iter().map(|provided| provided.expand_to_cow(instance.constants_by_variant())).collect::<Vec<_>>();
+    let conflicts = instance.conflicts.iter().map(|conflicting| conflicting.expand_to_cow(instance.constants_by_variant())).collect::<Vec<_>>();
+    let (recommends, enhances, replaces) = if let PackageSpec::ConfExt(confext) = &instance.spec {
+        let recommends = if confext.depends_on_extended {
+            instance.recommends.iter().map(|suggested| suggested.expand_to_cow(instance.constants_by_variant())).collect::<Vec<_>>()
         } else {
-            write_deps(&mut out, "Recommends", std::iter::once(confext.extends.expand_to_cow(instance.variant())).chain(instance.recommends.iter().map(|suggested| suggested.expand_to_cow(instance.constants_by_variant()))))?;
-        }
-        writeln!(out, "Enhances: {}", confext.extends.expand_to_cow(instance.variant()))?;
-        match &confext.replaces {
-            BoolOrVecTemplateString::Bool(false) => (),
-            BoolOrVecTemplateString::Bool(true) => writeln!(out, "Replaces: {}", confext.extends.expand_to_cow(instance.variant()))?,
-            BoolOrVecTemplateString::VecString(replaces) => write_deps(&mut out, "Replaces", replaces.iter().map(|replace| replace.expand(instance.constants_by_variant())))?,
-        }
+            std::iter::once(confext.extends.expand_to_cow(instance.variant()))
+                .chain(instance.recommends.iter().map(|suggested| suggested.expand_to_cow(instance.constants_by_variant())))
+                .collect::<Vec<_>>()
+        };
+        let enhances = vec![confext.extends.expand_to_cow(instance.variant())];
+        let replaces = match &confext.replaces {
+            BoolOrVecTemplateString::Bool(false) => Vec::new(),
+            BoolOrVecTemplateString::Bool(true) => vec![confext.extends.expand_to_cow(instance.variant())],
+            BoolOrVecTemplateString::VecString(replaces) => replaces.iter().map(|replace| replace.expand_to_cow(instance.constants_by_variant())).collect(),
+        };
+
+        (recommends, enhances, replaces)
     } else {
-        write_deps(&mut out, "Recommends", instance.recommends.iter().map(|suggested| suggested.expand(instance.constants_by_variant())))?;
+        (instance.recommends.iter().map(|suggested| suggested.expand_to_cow(instance.constants_by_variant())).collect::<Vec<_>>(), Vec::new(), Vec::new())
+    };
+
+    let mut description = String::new();
+    write!(description, "{}", instance.summary.expand(instance.constants_by_variant())).expect("writing to memory doesn't fail");
+    if let Some(long) = instance.long_doc {
+        write!(description, "\n{}", long.expand_to_cow(instance.constants_by_variant())).expect("writing to memory doesn't fail");
     }
 
-    writeln!(out, "Description: {}", instance.summary.expand(instance.constants_by_variant()))?;
-    if let Some(long) = instance.long_doc {
-        crate::codegen::paragraph(&mut out, &long.expand_to_cow(instance.constants_by_variant()))?;
-    }
+    let package = Package {
+        package: &instance.name,
+        architecture: *architecture,
+        priority: Priority::Optional,
+        depends: &depends,
+        recommends: &recommends,
+        suggests: &suggests,
+        provides: &provides,
+        conflicts: &conflicts,
+        enhances: &enhances,
+        replaces: &replaces,
+        description: &description,
+    };
+
+    rfc822_like::to_writer(out, &package)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
 
     Ok(())
 }

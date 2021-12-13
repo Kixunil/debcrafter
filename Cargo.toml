@@ -16,3 +16,4 @@ thiserror = "1.0.22"
 either = "1.6.1"
 linked-hash-map = { version = "0.5.3", features = ["serde_impl"] }
 fmt2io = "0.2.0"
+rfc822-like = "0.2.0"

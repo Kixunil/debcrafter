@@ -1,5 +1,5 @@
 use std::fmt;
-use serde_derive::Deserialize;
+use serde_derive::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use std::convert::TryFrom;
 use crate::template::TemplateString;
@@ -291,7 +291,8 @@ pub struct ExtraGroup {
     pub create: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
+#[derive(Copy, Clone)]
 pub enum Architecture {
     #[serde(rename = "any")]
     Any,
