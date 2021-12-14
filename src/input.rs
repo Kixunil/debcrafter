@@ -292,7 +292,7 @@ pub struct ExtraGroup {
 }
 
 #[derive(Serialize, Deserialize)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Architecture {
     #[serde(rename = "any")]
     Any,

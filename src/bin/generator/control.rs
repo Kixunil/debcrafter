@@ -76,13 +76,13 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         .into_iter()
 }
 
-#[derive(serde_derive::Serialize)]
+#[derive(Eq, PartialEq, Debug, serde_derive::Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Priority {
     Optional,
 }
 
-#[derive(serde_derive::Serialize)]
+#[derive(serde_derive::Serialize, Debug, Eq, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 struct Package<'a> {
     package: &'a str,
@@ -172,4 +172,207 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
         rfc822_like::to_writer(out, &package)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Priority, create_package};
+    use std::convert::TryFrom;
+    use std::borrow::Cow;
+    use crate::{PackageInstance, Map, Set};
+    use debcrafter::template::TemplateString;
+    use debcrafter::im_repr::{PackageSpec, BasePackageSpec, Architecture};
+    use debcrafter::types::Variant;
+
+    fn check_package(modify: impl FnOnce(&mut PackageInstance<'_>, &mut super::Package<'_>)) {
+        let pkg_spec = BasePackageSpec {
+            architecture: Architecture::All,
+        };
+
+        let mut instance = PackageInstance {
+            name: Cow::Borrowed("foo"),
+            variant: None,
+            map_variants: &Map::new(),
+            summary: &TemplateString::try_from("bar".to_owned()).unwrap(),
+            long_doc: None,
+            spec: &PackageSpec::Base(pkg_spec),
+            config: &Map::default(),
+            databases: &Map::default(),
+            includes: None,
+            depends: &Set::default(),
+            provides: &Set::default(),
+            recommends: &Set::default(),
+            suggests: &Set::default(),
+            conflicts: &Set::default(),
+            extended_by: &Set::default(),
+            add_files: &[],
+            add_dirs: &[],
+            add_links: &[],
+            add_manpages: &[],
+            alternatives: &Map::default(),
+            patch_foreign: &Map::default(),
+            extra_triggers: &Set::default(),
+            migrations: &Map::default(),
+            plug: &[],
+        };
+
+        let mut expected_package = super::Package {
+            package: "foo",
+            architecture: Architecture::All,
+            priority: Priority::Optional,
+            depends: &[Cow::Borrowed("${misc:Depends}"), Cow::Borrowed("${shlibs:Depends}")],
+            recommends: &[],
+            suggests: &[],
+            provides: &[],
+            conflicts: &[],
+            enhances: &[],
+            replaces: &[],
+            description: "bar",
+        };
+
+        modify(&mut instance, &mut expected_package);
+
+        create_package(&instance, "1.0.0", None, |package| {
+            assert_eq!(*package, expected_package);
+
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn basic() {
+        check_package(|_, _| ());
+    }
+
+    #[test]
+    fn one_dep() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref DEPENDS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz".to_owned()).unwrap());
+                    pkgs
+                };
+            }
+            instance.depends = &DEPENDS;
+            package.depends = &[Cow::Borrowed("${misc:Depends}"), Cow::Borrowed("${shlibs:Depends}"), Cow::Borrowed("baz")];
+        });
+    }
+
+    #[test]
+    fn one_recommends() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref RECOMMENDS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz".to_owned()).unwrap());
+                    pkgs
+                };
+            }
+            instance.recommends = &RECOMMENDS;
+            package.recommends = &[Cow::Borrowed("baz")];
+        });
+    }
+
+    #[test]
+    fn one_suggests() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref SUGGESTS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz".to_owned()).unwrap());
+                    pkgs
+                };
+            }
+            instance.suggests = &SUGGESTS;
+            package.suggests = &[Cow::Borrowed("baz")];
+        });
+    }
+
+    #[test]
+    fn one_conflicts() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref CONFLICTS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz".to_owned()).unwrap());
+                    pkgs
+                };
+            }
+            instance.conflicts = &CONFLICTS;
+            package.conflicts = &[Cow::Borrowed("baz")];
+        });
+    }
+
+    #[test]
+    fn one_dep_variant() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref DEPENDS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz-{variant}".to_owned()).unwrap());
+                    pkgs
+                };
+
+                static ref VARIANT: Variant = Variant::try_from("stuff".to_owned()).unwrap();
+            }
+            instance.variant = Some(&VARIANT);
+            instance.depends = &DEPENDS;
+            package.depends = &[Cow::Borrowed("${misc:Depends}"), Cow::Borrowed("${shlibs:Depends}"), Cow::Borrowed("baz-stuff")];
+        });
+    }
+
+    #[test]
+    fn one_recommends_variant() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref RECOMMENDS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz-{variant}".to_owned()).unwrap());
+                    pkgs
+                };
+
+                static ref VARIANT: Variant = Variant::try_from("stuff".to_owned()).unwrap();
+            }
+            instance.variant = Some(&VARIANT);
+            instance.recommends = &RECOMMENDS;
+            package.recommends = &[Cow::Borrowed("baz-stuff")];
+        });
+    }
+
+    #[test]
+    fn one_suggests_variant() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref SUGGESTS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz-{variant}".to_owned()).unwrap());
+                    pkgs
+                };
+
+                static ref VARIANT: Variant = Variant::try_from("stuff".to_owned()).unwrap();
+            }
+            instance.variant = Some(&VARIANT);
+            instance.suggests = &SUGGESTS;
+            package.suggests = &[Cow::Borrowed("baz-stuff")];
+        });
+    }
+
+    #[test]
+    fn one_conflicts_variant() {
+        check_package(|instance, package| {
+            lazy_static::lazy_static! {
+                static ref CONFLICTS: Set<TemplateString> = {
+                    let mut pkgs = Set::new();
+                    pkgs.insert(TemplateString::try_from("baz-{variant}".to_owned()).unwrap());
+                    pkgs
+                };
+
+                static ref VARIANT: Variant = Variant::try_from("stuff".to_owned()).unwrap();
+            }
+            instance.variant = Some(&VARIANT);
+            instance.conflicts = &CONFLICTS;
+            package.conflicts = &[Cow::Borrowed("baz-stuff")];
+        });
+    }
 }
