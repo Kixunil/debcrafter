@@ -76,18 +76,6 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
         .into_iter()
 }
 
-fn write_deps<W, I>(mut out: W, name: &str, deps: I) -> io::Result<()> where W: io::Write, I: IntoIterator, <I as IntoIterator>::Item: std::fmt::Display {
-    let mut iter = deps.into_iter();
-    if let Some(first) = iter.next() {
-        write!(out, "{}: {}", name, first)?;
-        for item in iter {
-            write!(out, ",\n         {}", item)?;
-        }
-        writeln!(out)?;
-    }
-    Ok(())
-}
-
 #[derive(serde_derive::Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Priority {
