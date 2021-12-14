@@ -98,13 +98,9 @@ struct Package<'a> {
     description: &'a str,
 }
 
-pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str, buildsystem: Option<&str>) -> io::Result<()> {
+fn create_package(instance: &PackageInstance<'_>, upstream_version: &str, buildsystem: Option<&str>, cb: impl FnOnce(&Package<'_>) -> io::Result<()>) -> io::Result<()> {
     use debcrafter::im_repr::BoolOrVecTemplateString;
     use std::fmt::Write;
-
-    let mut out = out.finalize();
-
-    writeln!(out)?;
 
     let architecture = match &instance.spec {
         PackageSpec::Base(base) => &base.architecture,
@@ -164,8 +160,16 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_ver
         description: &description,
     };
 
-    rfc822_like::to_writer(out, &package)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+    cb(&package)
+}
 
-    Ok(())
+pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder, upstream_version: &str, buildsystem: Option<&str>) -> io::Result<()> {
+    let mut out = out.finalize();
+
+    create_package(instance, upstream_version, buildsystem, move |package| {
+        writeln!(out)?;
+
+        rfc822_like::to_writer(out, &package)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))
+    })
 }
