@@ -117,7 +117,9 @@ impl<'a, I> SecureCommand<'a, I> where I: IntoIterator, I::Item: fmt::Display {
             } else {
                 "--reset-env "
             };
-            write!(cmd_writer, "setpriv --reuid={} --regid={} --init-groups --inh-caps=-all {}{}-- ", self.user, self.group, no_new_privs, reset_env)?;
+            // Solution for setpriv: libcap-ng is too old for "all" caps
+            // https://github.com/SinusBot/docker/pull/40
+            write!(cmd_writer, "setpriv --reuid={} --regid={} --init-groups --inh-caps=-cap_$(seq -s ,-cap_ 0 $(cat /proc/sys/kernel/cap_last_cap)) {}{}-- ", self.user, self.group, no_new_privs, reset_env)?;
         }
         write!(cmd_writer, "{}", DisplayEscaped(self.program))?;
         for arg in self.args {
