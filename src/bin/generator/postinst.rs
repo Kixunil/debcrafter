@@ -562,16 +562,17 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
     fn run_command<I>(&mut self, command: I, env: &CommandEnv<'_>) -> Result<(), Self::Error> where I: IntoIterator, I::Item: fmt::Display {
         let mut iter = command.into_iter();
         write!(self.out, "MAINTSCRIPT_ACTION=\"$1\" MAINTSCRIPT_VERSION=\"$2\" ")?;
-        let (user, group, allow_new_privs) = if let Some(restrictions) = &env.restrict_privileges {
-            (restrictions.user, restrictions.group, restrictions.allow_new_privileges)
+        let (user, group, allow_new_privs, read_only_root) = if let Some(restrictions) = &env.restrict_privileges {
+            (restrictions.user, restrictions.group, restrictions.allow_new_privileges, restrictions.read_only_root)
         } else {
-            ("root", "root", true)
+            ("root", "root", true, false)
         };
         let program = iter.next().expect("Can't run command: missing program name").to_string();
         fmt2io::write(&mut self.out, |writer|
             crate::codegen::bash::SecureCommand::new(&program, iter, user, group)
                 .allow_new_privileges(allow_new_privs)
                 .keep_env(true)
+                .rw_root(!read_only_root)
                 .generate_script(writer)
         )?;
         writeln!(self.out)

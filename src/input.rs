@@ -19,6 +19,8 @@ pub struct Plug {
     pub run_as_group: Option<TemplateString>,
     pub register_cmd: Vec<TemplateString>,
     pub unregister_cmd: Vec<TemplateString>,
+    #[serde(default = "create_true")]
+    pub read_only_root: bool,
 }
 
 #[derive(Deserialize)]

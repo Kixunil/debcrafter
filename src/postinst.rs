@@ -35,6 +35,7 @@ pub struct CommandPrivileges<'a> {
     pub user: &'a str,
     pub group: &'a str,
     pub allow_new_privileges: bool,
+    pub read_only_root: bool,
 }
 
 pub struct CommandEnv<'a> {
@@ -653,6 +654,7 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
                 user: &user,
                 group: &group,
                 allow_new_privileges: false,
+                read_only_root: plug.read_only_root,
             })
         } else {
             None

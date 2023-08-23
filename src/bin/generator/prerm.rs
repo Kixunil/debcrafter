@@ -56,6 +56,7 @@ fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Resul
                 user: &user,
                 group: &group,
                 allow_new_privileges: false,
+                read_only_root: plug.read_only_root,
             })
         } else {
             None
@@ -68,16 +69,17 @@ fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Resul
         let mut iter = plug.unregister_cmd.iter().map(|arg| arg.expand(instance.constants_by_variant()));
 
         write!(out, "MAINTSCRIPT_ACTION=\"$1\" MAINTSCRIPT_VERSION=\"$2\" ")?;
-        let (user, group, allow_new_privs) = if let Some(restrictions) = &env.restrict_privileges {
-            (restrictions.user, restrictions.group, restrictions.allow_new_privileges)
+        let (user, group, allow_new_privs, read_only_root) = if let Some(restrictions) = &env.restrict_privileges {
+            (restrictions.user, restrictions.group, restrictions.allow_new_privileges, restrictions.read_only_root)
         } else {
-            ("root", "root", true)
+            ("root", "root", true, false)
         };
         let program = iter.next().expect("Can't run command: missing program name").to_string();
         fmt2io::write(&mut out, |writer|
             crate::codegen::bash::SecureCommand::new(&program, iter, user, group)
                 .allow_new_privileges(allow_new_privs)
                 .keep_env(true)
+                .rw_root(!read_only_root)
                 .generate_script(writer)
         )?;
         writeln!(out)?;
