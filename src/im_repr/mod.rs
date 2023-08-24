@@ -59,6 +59,7 @@ pub struct Package {
     pub extra_triggers: Set<TemplateString>,
     pub migrations: Map<MigrationVersion, Migration>,
     pub plug: Vec<Plug>,
+    pub custom_postrm_script: Option<TemplateString>,
 }
 
 impl Package {
@@ -90,6 +91,7 @@ impl Package {
             extra_triggers: &self.extra_triggers,
             migrations: &self.migrations,
             plug: self.plug.as_ref(),
+            custom_postrm_script: self.custom_postrm_script.as_ref(),
         }
     }
 }
@@ -129,6 +131,7 @@ impl TryFrom<crate::input::Package> for Package {
             extra_triggers: value.extra_triggers,
             migrations: value.migrations,
             plug: value.plug,
+            custom_postrm_script: value.custom_postrm_script,
         })
     }
 }
@@ -168,6 +171,7 @@ pub struct PackageInstance<'a> {
     pub extra_triggers: &'a Set<TemplateString>,
     pub migrations: &'a Map<MigrationVersion, Migration>,
     pub plug: &'a [Plug],
+    pub custom_postrm_script: Option<&'a TemplateString>,
 }
 
 impl<'a> PackageInstance<'a> {

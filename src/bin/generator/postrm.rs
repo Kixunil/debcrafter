@@ -8,6 +8,9 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     let out = out.set_header("#!/bin/bash\n\nif [ \"$1\" = purge ];\nthen\n");
     let mut out = out.finalize();
     let mut triggers = Set::new();
+    if let Some(custom_script) = &instance.custom_postrm_script {
+        writeln!(out, "{}", custom_script.expand(instance.constants_by_variant()))?;
+    }
     for (file_name, conf) in instance.config() {
         if let ConfType::Dynamic { postprocess, .. } = &conf.conf_type {
             let abs_file = format!("/etc/{}/{}", instance.config_sub_dir(), file_name.expand(instance.constants_by_variant()));

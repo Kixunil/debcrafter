@@ -48,6 +48,8 @@ pub struct Package {
     pub migrations: Map<MigrationVersion, Migration>,
     #[serde(default)]
     pub plug: Vec<Plug>,
+    #[serde(default)]
+    pub custom_postrm_script: Option<TemplateString>,
 }
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
