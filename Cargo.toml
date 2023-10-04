@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 serde = "1"
 serde_derive = "1"
-toml = "0.4.2"
+toml = "0.5.4"
 void = "1"
 itertools = "0.9"
 thiserror = "1.0.22"
