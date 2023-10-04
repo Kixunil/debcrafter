@@ -3,7 +3,7 @@ use serde_derive::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
 use std::convert::TryFrom;
 use crate::template::TemplateString;
-use linked_hash_map::LinkedHashMap;
+use indexmap::IndexMap as OrderedHashMap;
 use crate::types::{VPackageName, Variant, NonEmptyVec, VarName};
 
 use super::{Map, Set};
@@ -524,11 +524,11 @@ pub enum ConfType {
         #[serde(default)]
         with_header: bool,
         #[serde(default)]
-        ivars: LinkedHashMap<String, InternalVar>,
+        ivars: OrderedHashMap<String, InternalVar>,
         #[serde(default)]
         evars: Map<VPackageName, Map<String, ExternalVar>>,
         #[serde(default)]
-        hvars: LinkedHashMap<String, HiddenVar>,
+        hvars: OrderedHashMap<String, HiddenVar>,
         #[serde(default)]
         fvars: Map<String, FileVar>,
         cat_dir: Option<String>,
