@@ -1,11 +1,12 @@
 use std::{io, fs};
+use std::convert::TryInto;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use codegen::{LazyCreateBuilder};
 use debcrafter::{Map, Set};
-use debcrafter::input::Package;
-use debcrafter::im_repr::{PackageInstance, ServiceInstance};
+use debcrafter::im_repr::{Package, PackageInstance, ServiceInstance};
 use debcrafter::types::{VPackageName, Variant};
+use debcrafter::error_report::IntoDiagnostic;
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
 use either::Either;
@@ -149,7 +150,11 @@ fn copy_changelog(deb_dir: &Path, source: &Path) {
 
 fn load_package(source_dir: &Path, package: &VPackageName) -> (Package, PathBuf) {
     let filename = package.sps_path(source_dir);
-    let package = Package::load(&filename).expect("Failed to load package");
+    let source = std::fs::read_to_string(&filename).unwrap_or_else(|error| panic!("failed to read {}: {}", filename.display(), error));
+    let package = toml::from_str::<debcrafter::input::Package>(&source)
+        .expect("Failed to parse package")
+        .try_into()
+        .unwrap_or_else(|error: debcrafter::im_repr::PackageError| error.report(filename.display().to_string(), source));
     (package, filename)
 }
 
@@ -210,7 +215,6 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     for (package, filename) in packages {
         use debcrafter::im_repr::PackageOps;
         let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); &mut **deps});
-        let package = debcrafter::im_repr::Package::try_from(package).unwrap_or_else(|error| panic!("invalid package {}: {:?}", filename.display(), error));
         let includes = package
             .load_includes(source_dir, deps_opt)
             .into_iter()

@@ -17,6 +17,7 @@ either = "1.6.1"
 indexmap = { version = "1.6.2", features = ["serde"] }
 fmt2io = "0.2.0"
 rfc822-like = "0.2.0"
+codespan-reporting = "0.11.1"
 
 [dev-dependencies]
 lazy_static = "1.4.0"

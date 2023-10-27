@@ -214,11 +214,14 @@ impl TryFrom<crate::input::Config> for Config {
 }
 
 fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
+    use crate::error_report::IntoDiagnostic;
+
     move || {
         let file = name.sps_path(dir);
-        let package = crate::input::Package::load(&file).expect("Failed to load include");
-        deps.as_mut().map(|deps| deps.insert(file));
-        package.try_into().unwrap()
+        let source = std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("failed to read {}: {}", file.display(), error));
+        let package = toml::from_str::<crate::input::Package>(&source).expect("Failed to parse include");
+        deps.as_mut().map(|deps| deps.insert(file.clone()));
+        package.try_into().unwrap_or_else(|error: PackageError| error.report(file.display().to_string(), source))
     }
 }
 
@@ -837,6 +840,13 @@ pub struct Span {
     pub(crate) end: usize,
 }
 
+impl From<Span> for std::ops::Range<usize> {
+    fn from(value: Span) -> Self {
+        value.begin..value.end
+    }
+}
+
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct MigrationVersion(String);
 
@@ -906,17 +916,17 @@ impl TryFrom<toml::Spanned<String>> for MigrationVersion {
 }
 
 #[derive(Debug, Clone)]
-enum MigrationVersionErrorInner {
+pub(crate) enum MigrationVersionErrorInner {
     BadPrefix(String),
     Invalid(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct MigrationVersionError {
-    error: MigrationVersionErrorInner,
+    pub(crate) error: MigrationVersionErrorInner,
     // Debug is fine for now actually
     #[allow(dead_code)]
-    span: Span,
+    pub(crate) span: Span,
 }
 
 impl fmt::Display for MigrationVersionError {
