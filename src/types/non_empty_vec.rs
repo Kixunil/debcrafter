@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 
+#[derive(Debug)]
 #[derive(serde_derive::Deserialize)]
 #[serde(try_from = "Vec<T>")]
 pub struct NonEmptyVec<T>(Vec<T>);

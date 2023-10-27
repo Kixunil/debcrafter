@@ -1,4 +1,4 @@
-use crate::input::{ConfDir, RuntimeDir, ExtraGroup, UserSpec};
+use crate::im_repr::{ConfDir, RuntimeDir, ExtraGroup, UserSpec};
 use crate::template::TemplateString;
 use crate::Map;
 use crate::types::{VPackageName, Variant, NonEmptyMap};

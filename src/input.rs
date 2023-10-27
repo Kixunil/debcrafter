@@ -1,74 +1,163 @@
 use std::fmt;
 use serde_derive::{Serialize, Deserialize};
 use std::path::{Path, PathBuf};
-use std::convert::TryFrom;
 use crate::template::TemplateString;
 use indexmap::IndexMap as OrderedHashMap;
 use crate::types::{VPackageName, Variant, NonEmptyVec, VarName};
+use toml::Spanned;
+use crate::im_repr::Span;
 
 use super::{Map, Set};
 
-fn create_true() -> bool {
-    true
+macro_rules! field_name {
+    ($name:ident,) => { stringify!($name) };
+    ($name:ident, $rename:tt) => { $rename };
 }
 
-#[derive(Deserialize)]
-pub struct Plug {
-    pub run_as_user: TemplateString,
-    #[serde(default)]
-    pub run_as_group: Option<TemplateString>,
-    pub register_cmd: Vec<TemplateString>,
-    pub unregister_cmd: Vec<TemplateString>,
-    #[serde(default = "create_true")]
-    pub read_only_root: bool,
+macro_rules! serde_struct {
+    ($struct_vis:vis struct $struct_name:ident { $unknown_vis:vis $unknown:ident, $span_vis:vis $span:ident $(, $(#[serde(rename = $rename:tt)])? $field_vis:vis $field_name:ident: $field_ty:ty)* $(,)? }) => {
+        #[derive(Debug)]
+        $struct_vis struct $struct_name {
+            $($field_vis $field_name: Option<$field_ty>,)*
+            $unknown_vis $unknown: Vec<Spanned<String>>,
+            $span_vis $span: Span,
+        }
+
+        impl<'de> serde::de::Deserialize<'de> for $struct_name {
+            fn deserialize<D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct Visitor;
+
+                impl<'de2> serde::de::Visitor<'de2> for Visitor {
+                    type Value = Wrapper;
+
+                    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        write!(f, "a map")
+                    }
+
+                    fn visit_map<A: serde::de::MapAccess<'de2>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                        let mut result = $struct_name {
+                            $(
+                                $field_name: None,
+                            )*
+                            $unknown: Vec::new(),
+                            $span: Span { begin: 0, end: 0 },
+                        };
+                        while let Some(key) = map.next_key::<Spanned<String>>()? {
+                            match &**key.get_ref() {
+                                $(
+                                    field_name!($field_name, $($rename)?) => {
+                                        result.$field_name = Some(map.next_value()?);
+                                    },
+                                )*
+                                _ => {
+                                    result.$unknown.push(key);
+                                    map.next_value::<serde::de::IgnoredAny>()?;
+                                },
+                            }
+                        }
+                        Ok(Wrapper(result))
+                    }
+                }
+
+                struct Wrapper($struct_name);
+
+                impl<'de2> serde::de::Deserialize<'de2> for Wrapper {
+                    fn deserialize<D: serde::de::Deserializer<'de2>>(deserializer: D) -> Result<Self, D::Error> {
+                        deserializer.deserialize_map(Visitor)
+                    }
+                }
+
+                Spanned::<Wrapper>::deserialize(deserializer)
+                    .map(|wrapper| {
+                        let span = wrapper.span();
+                        let mut inner = wrapper.into_inner().0;
+                        inner.span = Span { begin: span.0, end: span.1 };
+                        inner
+                    })
+            }
+        }
+    }
 }
 
-#[derive(Deserialize)]
+serde_struct! {
+pub(crate) struct Plug {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) run_as_user: TemplateString,
+    pub(crate) run_as_group: TemplateString,
+    pub(crate) register_cmd: Vec<TemplateString>,
+    pub(crate) unregister_cmd: Vec<TemplateString>,
+    pub(crate) read_only_root: bool,
+}
+}
+
+serde_struct! {
 pub struct Package {
-    pub name: VPackageName,
-    #[serde(default)]
-    pub map_variants: Map<String, Map<Variant, String>>,
-    #[serde(flatten)]
-    pub spec: PackageSpec,
-    #[serde(default)]
-    pub depends: Set<TemplateString>,
-    #[serde(default)]
-    pub provides: Set<TemplateString>,
-    #[serde(default)]
-    pub recommends: Set<TemplateString>,
-    #[serde(default)]
-    pub suggests: Set<TemplateString>,
-    #[serde(default)]
-    pub conflicts: Set<TemplateString>,
-    #[serde(default)]
-    pub extended_by: Set<TemplateString>,
-    #[serde(default)]
-    pub extra_triggers: Set<TemplateString>,
-    #[serde(default)]
-    pub migrations: Map<MigrationVersion, Migration>,
-    #[serde(default)]
-    pub plug: Vec<Plug>,
-    #[serde(default)]
-    pub custom_postrm_script: Option<TemplateString>,
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) name: VPackageName,
+    pub(crate) map_variants: Map<String, Map<Variant, String>>,
+    pub(crate) architecture: Spanned<Architecture>,
+    pub(crate) bin_package: String,
+    pub(crate) min_patch: String,
+    pub(crate) binary: String,
+    pub(crate) bare_conf_param: bool,
+    pub(crate) conf_param: String,
+    pub(crate) conf_d: ConfDir,
+    pub(crate) user: UserSpec,
+    pub(crate) config: Map<TemplateString, Config>,
+    pub(crate) condition_path_exists: TemplateString,
+    pub(crate) service_type: String,
+    pub(crate) exec_stop: String,
+    pub(crate) after: TemplateString,
+    pub(crate) before: TemplateString,
+    pub(crate) wants: TemplateString,
+    pub(crate) requires: TemplateString,
+    pub(crate) binds_to: TemplateString,
+    pub(crate) part_of: TemplateString,
+    pub(crate) wanted_by: TemplateString,
+    pub(crate) refuse_manual_start: bool,
+    pub(crate) refuse_manual_stop: bool,
+    pub(crate) runtime_dir: RuntimeDir,
+    pub(crate) extra_service_config: TemplateString,
+    pub(crate) extends: Spanned<VPackageName>,
+    pub(crate) replaces: BoolOrVecTemplateString,
+    pub(crate) depends_on_extended: bool,
+    pub(crate) external: bool,
+    pub(crate) summary: TemplateString,
+    pub(crate) long_doc: TemplateString,
+    pub(crate) databases: Map<Database, DbConfig>,
+    pub(crate) add_files: Vec<TemplateString>,
+    pub(crate) add_dirs: Vec<TemplateString>,
+    pub(crate) add_links: Vec<TemplateString>,
+    pub(crate) add_manpages: Vec<String>,
+    pub(crate) alternatives: Map<String, Alternative>,
+    pub(crate) patch_foreign: Map<String, String>,
+    pub(crate) extra_groups: Map<TemplateString, ExtraGroup>,
+    pub(crate) allow_suid_sgid: bool,
+    pub(crate) depends: Set<TemplateString>,
+    pub(crate) provides: Set<TemplateString>,
+    pub(crate) recommends: Set<TemplateString>,
+    pub(crate) suggests: Set<TemplateString>,
+    pub(crate) conflicts: Set<TemplateString>,
+    pub(crate) extended_by: Set<TemplateString>,
+    pub(crate) extra_triggers: Set<TemplateString>,
+    pub(crate) migrations: Map<Spanned<String>, Migration>,
+    pub(crate) plug: Vec<Plug>,
+    pub(crate) custom_postrm_script: TemplateString,
+}
 }
 
 pub type FileDeps<'a> = Option<&'a mut Set<PathBuf>>;
-
-fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
-    move || {
-        let file = name.sps_path(dir);
-        let package = Package::load(&file).expect("Failed to load include");
-        deps.as_mut().map(|deps| deps.insert(file));
-        package
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 enum LoadTomlErrorSource {
     #[error("Failed to read")]
     Read(#[from] std::io::Error),
     #[error("Failed to parse")]
-    Parse(#[from] toml::de::Error)
+    Parse(toml::de::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,164 +179,30 @@ impl LoadTomlError {
 pub fn load_toml<T: for<'a> serde::Deserialize<'a>, P: AsRef<Path> + Into<PathBuf>>(file: P) -> Result<T, LoadTomlError> {
     let file = file.as_ref();
     let spec = std::fs::read(&file).map_err(LoadTomlError::with_path(file))?;
-    toml::from_slice(&spec).map_err(LoadTomlError::with_path(file))
+    toml::from_slice(&spec)
+        .map_err(|error| LoadTomlErrorSource::Parse(error))
+        .map_err(LoadTomlError::with_path(file))
 }
 
 impl Package {
     pub fn load<P: AsRef<Path> + Into<PathBuf>>(file: P) -> Result<Self, LoadTomlError> {
         load_toml(file)
     }
-
-    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
-        let mut result = Map::new();
-        let config = match &self.spec {
-            PackageSpec::Service(spec) => &spec.config,
-            PackageSpec::ConfExt(spec) => &spec.config,
-            PackageSpec::Base(spec) => &spec.config,
-        };
-        for (_, conf) in config {
-            if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                for (pkg, _) in evars {
-                    let deps = deps.as_mut().map(|deps| &mut **deps);
-                    result.entry(pkg.to_owned()).or_insert_with(load_include(dir.as_ref(), pkg, deps));
-                }
-            }
-        }
-
-        if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
-            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), &extends, deps));
-        }
-
-        result
-    }
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-pub enum PackageSpec {
-    Service(ServicePackageSpec),
-    ConfExt(ConfExtPackageSpec),
-    Base(BasePackageSpec),
+serde_struct! {
+pub(crate) struct Migration {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) config: TemplateString,
+    pub(crate) postinst_finish: TemplateString,
+}
 }
 
-impl PackageSpec {
-    pub fn summary(&self) -> &Option<TemplateString> {
-        match self {
-            PackageSpec::Base(base) => &base.summary,
-            PackageSpec::Service(service) => &service.summary,
-            PackageSpec::ConfExt(confext) => &confext.summary,
-        }
-    }
-
-    pub fn long_doc(&self) -> &Option<TemplateString> {
-        match self {
-            PackageSpec::Base(base) => &base.long_doc,
-            PackageSpec::Service(service) => &service.long_doc,
-            PackageSpec::ConfExt(confext) => &confext.long_doc,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct Migration {
-    pub config: Option<TemplateString>,
-    pub postinst_finish: Option<TemplateString>,
-}
-
-#[derive(Clone, Eq, PartialEq, Deserialize)]
-#[serde(try_from = "String")]
-pub struct MigrationVersion(String);
-
-impl MigrationVersion {
-    pub fn version(&self) -> &str {
-        &self.0[3..]
-    }
-}
-
-impl std::cmp::Ord for MigrationVersion {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self == other {
-            return std::cmp::Ordering::Equal;
-        }
-        if std::process::Command::new("dpkg")
-            .args(&["--compare-versions", self.version(), "lt", &other.version()])
-            .spawn()
-            .expect("Failed to compare versions")
-            .wait()
-            .expect("Failed to compare versions")
-            .success() {
-                std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
-    }
-}
-
-impl std::cmp::PartialOrd for MigrationVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl TryFrom<String> for MigrationVersion {
-    type Error = MigrationVersionError;
-
-    fn try_from(string: String) -> Result<Self, Self::Error> {
-        if !string.starts_with("<< ") {
-            return Err(MigrationVersionErrorInner::BadPrefix(string).into());
-        }
-        let output = std::process::Command::new("dpkg")
-            .args(&["--validate-version", &string[3..]])
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .expect("Failed to compare versions")
-            .wait_with_output()
-            .expect("Failed to compare versions");
-        if output.status.success() {
-            Ok(MigrationVersion(string))
-        } else {
-            let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
-            Err(MigrationVersionErrorInner::Invalid(err_message).into())
-        }
-    }
-}
-
-#[derive(Debug)]
-enum MigrationVersionErrorInner {
-    BadPrefix(String),
-    Invalid(String),
-}
-
-#[derive(Debug)]
-pub struct MigrationVersionError {
-    error: MigrationVersionErrorInner
-}
-
-impl From<MigrationVersionErrorInner> for MigrationVersionError {
-    fn from(value: MigrationVersionErrorInner) -> Self {
-        MigrationVersionError {
-            error: value,
-        }
-    }
-}
-
-impl fmt::Display for MigrationVersionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // strip_prefix method is in str since 1.45, we support 1.34
-        let strip_prefix = "dpkg: warning: ";
-        match &self.error {
-            MigrationVersionErrorInner::BadPrefix(string) => write!(f, "invalid migration version '{}', the version must start with '<< '", string),
-            MigrationVersionErrorInner::Invalid(string) if string.starts_with(strip_prefix) => write!(f, "{}", &string[strip_prefix.len()..]),
-            MigrationVersionErrorInner::Invalid(string) => write!(f, "{}", string),
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Database {
-    #[serde(rename = "pgsql")]
     Postgres,
-    #[serde(rename = "mysql")]
     MySQL,
 }
 
@@ -281,18 +236,48 @@ impl Database {
     }
 }
 
-#[derive(Deserialize)]
-pub struct DbConfig {
-    pub template: String,
-    #[serde(default)]
-    pub config_file_owner: Option<String>,
-    #[serde(default)]
-    pub config_file_group: Option<String>,
+impl<'de> serde::Deserialize<'de> for Database {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de2> serde::de::Visitor<'de2> for Visitor {
+            type Value = Database;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+                write!(f, "a database name - pgsql or mysql")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+                match s {
+                    "pgsql" => Ok(Database::Postgres),
+                    "mysql" => Ok(Database::MySQL),
+                    unknown => Err(E::unknown_variant(unknown, &["pgsql", "mysql"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(Visitor)
+    }
 }
 
-#[derive(Deserialize)]
-pub struct ExtraGroup {
-    pub create: bool,
+serde_struct! {
+pub(crate) struct DbConfig {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) template: String,
+    pub(crate) config_file_owner: String,
+    pub(crate) config_file_group: String,
+}
+}
+
+serde_struct! {
+pub(crate) struct ExtraGroup {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) create: bool,
+}
 }
 
 #[derive(Serialize, Deserialize)]
@@ -313,103 +298,16 @@ impl fmt::Display for Architecture {
     }
 }
 
+serde_struct! {
+pub(crate) struct RuntimeDir {
+    pub(crate) unknown,
+    pub(crate) span,
 
-#[derive(Deserialize)]
-pub struct BasePackageSpec {
-    pub architecture: Architecture,
-    #[serde(default)]
-    pub config: Map<TemplateString, Config>,
-    #[serde(default)]
-    pub summary: Option<TemplateString>,
-    #[serde(default)]
-    pub long_doc: Option<TemplateString>,
-    #[serde(default)]
-    pub databases: Map<Database, DbConfig>,
-    #[serde(default)]
-    pub add_files: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_dirs: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_links: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_manpages: Vec<String>,
-    #[serde(default)]
-    pub alternatives: Map<String, Alternative>,
-    #[serde(default)]
-    pub patch_foreign: Map<String, String>,
+    pub(crate) mode: String,
+}
 }
 
-#[derive(Deserialize)]
-pub struct ServicePackageSpec {
-    pub bin_package: String,
-    pub min_patch: Option<String>,
-    pub binary: String,
-    #[serde(default)]
-    pub bare_conf_param: bool,
-    #[serde(default)]
-    pub conf_param: Option<String>,
-    #[serde(default)]
-    pub conf_d: Option<ConfDir>,
-    pub user: UserSpec,
-    #[serde(default)]
-    pub config: Map<TemplateString, Config>,
-    #[serde(default)]
-    pub condition_path_exists: Option<TemplateString>,
-    #[serde(default)]
-    pub service_type: Option<String>,
-    #[serde(default)]
-    pub exec_stop: Option<String>,
-    #[serde(default)]
-    pub after: Option<TemplateString>,
-    #[serde(default)]
-    pub before: Option<TemplateString>,
-    #[serde(default)]
-    pub wants: Option<TemplateString>,
-    #[serde(default)]
-    pub requires: Option<TemplateString>,
-    #[serde(default)]
-    pub binds_to: Option<TemplateString>,
-    #[serde(default)]
-    pub part_of: Option<TemplateString>,
-    #[serde(default)]
-    pub wanted_by: Option<TemplateString>,
-    #[serde(default)]
-    pub refuse_manual_start: bool,
-    #[serde(default)]
-    pub refuse_manual_stop: bool,
-    #[serde(default)]
-    pub runtime_dir: Option<RuntimeDir>,
-    #[serde(default)]
-    pub extra_service_config: Option<TemplateString>,
-    #[serde(default)]
-    pub summary: Option<TemplateString>,
-    #[serde(default)]
-    pub long_doc: Option<TemplateString>,
-    #[serde(default)]
-    pub databases: Map<Database, DbConfig>,
-    #[serde(default)]
-    pub extra_groups: Map<TemplateString, ExtraGroup>,
-    #[serde(default)]
-    pub add_files: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_dirs: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_links: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_manpages: Vec<String>,
-    #[serde(default)]
-    pub alternatives: Map<String, Alternative>,
-    #[serde(default)]
-    pub patch_foreign: Map<String, String>,
-    #[serde(default)]
-    pub allow_suid_sgid: bool,
-}
-
-#[derive(Deserialize)]
-pub struct RuntimeDir {
-    pub mode: String,
-}
-
+#[derive(Debug)]
 pub enum BoolOrVecTemplateString {
     Bool(bool),
     VecString(Vec<TemplateString>),
@@ -449,122 +347,83 @@ impl<'de> serde::Deserialize<'de> for BoolOrVecTemplateString {
     }
 }
 
-#[derive(Deserialize)]
-pub struct ConfExtPackageSpec {
-    pub extends: VPackageName,
-    #[serde(default)]
-    pub replaces: BoolOrVecTemplateString,
-    #[serde(default)]
-    pub depends_on_extended: bool,
-    pub min_patch: Option<String>,
-    #[serde(default)]
-    pub external: bool,
-    #[serde(default)]
-    pub summary: Option<TemplateString>,
-    #[serde(default)]
-    pub long_doc: Option<TemplateString>,
-    #[serde(default)]
-    pub databases: Map<Database, DbConfig>,
-    #[serde(default)]
-    pub config: Map<TemplateString, Config>,
-    #[serde(default)]
-    pub add_files: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_dirs: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_links: Vec<TemplateString>,
-    #[serde(default)]
-    pub add_manpages: Vec<String>,
-    #[serde(default)]
-    pub alternatives: Map<String, Alternative>,
-    #[serde(default)]
-    pub patch_foreign: Map<String, String>,
-    #[serde(default)]
-    pub extra_groups: Map<TemplateString, ExtraGroup>,
+serde_struct! {
+pub(crate) struct ConfDir {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) param: String,
+    pub(crate) name: String,
+}
 }
 
-#[derive(Deserialize)]
-pub struct ConfDir {
-    pub param: String,
-    pub name: String,
+serde_struct! {
+pub(crate) struct UserSpec {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) name: TemplateString,
+    pub(crate) group: bool,
+    pub(crate) create: CreateUser,
+}
 }
 
-#[derive(Deserialize)]
-pub struct UserSpec {
-    #[serde(default)]
-    pub name: Option<TemplateString>,
-    #[serde(default)]
-    pub group: bool,
-    #[serde(default)]
-    pub create: Option<CreateUser>,
+serde_struct! {
+pub(crate) struct CreateUser {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) home: bool,
+}
 }
 
-#[derive(Deserialize)]
-pub struct CreateUser {
-    pub home: bool,
+serde_struct! {
+pub(crate) struct Config {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) public: bool,
+    pub(crate) external: bool,
+    pub(crate) content: String,
+    pub(crate) internal: bool,
+    pub(crate) format: ConfFormat,
+    pub(crate) insert_header: TemplateString,
+    pub(crate) with_header: bool,
+    pub(crate) ivars: OrderedHashMap<String, InternalVar>,
+    pub(crate) evars: Map<VPackageName, Map<String, ExternalVar>>,
+    pub(crate) hvars: OrderedHashMap<String, HiddenVar>,
+    pub(crate) fvars: Map<String, FileVar>,
+    pub(crate) cat_dir: String,
+    pub(crate) cat_files: Set<String>,
+    pub(crate) comment: String,
+    // Command to run after creating whole config file
+    pub(crate) postprocess: PostProcess,
+}
 }
 
-#[derive(Deserialize)]
-pub struct Config {
-    #[serde(default)]
-    pub public: bool,
-    #[serde(default)]
-    pub external: bool,
-    #[serde(flatten)]
-    pub conf_type: ConfType,
+serde_struct! {
+pub(crate) struct PostProcess {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) command: Vec<TemplateString>,
+    pub(crate) generates: Vec<GeneratedFile>,
+    pub(crate) stop_service: bool,
+}
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-pub enum ConfType {
-    Static { content: String, #[serde(default)] internal: bool, },
-    Dynamic {
-        format: ConfFormat,
-        insert_header: Option<TemplateString>,
-        #[serde(default)]
-        with_header: bool,
-        #[serde(default)]
-        ivars: OrderedHashMap<String, InternalVar>,
-        #[serde(default)]
-        evars: Map<VPackageName, Map<String, ExternalVar>>,
-        #[serde(default)]
-        hvars: OrderedHashMap<String, HiddenVar>,
-        #[serde(default)]
-        fvars: Map<String, FileVar>,
-        cat_dir: Option<String>,
-        #[serde(default)]
-        cat_files: Set<String>,
-        comment: Option<String>,
-        // Command to run after creating whole config file
-        postprocess: Option<PostProcess>,
-    },
+serde_struct! {
+pub(crate) struct GeneratedFile {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) file: TemplateString,
+    pub(crate) dir: TemplateString,
+    pub(crate) internal: bool,
+}
 }
 
-#[derive(Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct PostProcess {
-    pub command: Vec<TemplateString>,
-    #[serde(default)]
-    pub generates: Vec<GeneratedFile>,
-    #[serde(default)]
-    pub stop_service: bool,
-}
-
-#[derive(Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct GeneratedFile {
-    #[serde(flatten)]
-    pub ty: GeneratedType,
-    pub internal: bool,
-}
-
-#[derive(Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum GeneratedType {
-    File(TemplateString),
-    Dir(TemplateString),
-}
-
+#[derive(Debug)]
 #[derive(Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfFormat {
@@ -587,35 +446,60 @@ impl fmt::Display for ConfFormat {
     }
 }
 
-#[derive(Deserialize)]
-pub struct InternalVar {
-    #[serde(flatten)]
-    pub ty: VarType,
-    pub summary: TemplateString,
-    #[serde(default)]
-    pub long_doc: Option<TemplateString>,
-    #[serde(default)]
-    pub default: Option<TemplateString>,
-    #[serde(default)]
-    pub try_overwrite_default: Option<TemplateString>,
-    pub priority: DebconfPriority,
-    #[serde(default = "create_true")]
-    pub store: bool,
-    #[serde(default)]
-    pub ignore_empty: bool,
-    #[serde(default)]
-    pub structure: Option<Vec<String>>,
-    #[serde(default)]
-    pub conditions: Vec<InternalVarCondition>,
+serde_struct! {
+pub(crate) struct InternalVar {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    #[serde(rename = "type")]
+    pub(crate) ty: Spanned<String>,
+    pub(crate) summary: TemplateString,
+    pub(crate) long_doc: TemplateString,
+    pub(crate) default: TemplateString,
+    pub(crate) try_overwrite_default: TemplateString,
+    pub(crate) priority: DebconfPriority,
+    pub(crate) store: bool,
+    pub(crate) ignore_empty: bool,
+    pub(crate) structure: Vec<String>,
+    pub(crate) conditions: Vec<InternalVarCondition>,
+    pub(crate) file_type: FileType,
+    pub(crate) create: CreateFsObj,
+}
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InternalVarCondition {
-    Var { name: VarName<'static>, value: TemplateString, },
-    Command { run: NonEmptyVec<TemplateString>, user: TemplateString, group: TemplateString, #[serde(default)] invert: bool, },
+serde_struct! {
+pub(crate) struct InternalVarCondition {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) var: InternalVarConditionVar,
+    pub(crate) command: InternalVarConditionCommand,
+}
 }
 
+serde_struct! {
+pub(crate) struct InternalVarConditionVar {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) name: VarName<'static>,
+    pub(crate) value: TemplateString,
+}
+}
+
+serde_struct! {
+pub(crate) struct InternalVarConditionCommand {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) run: NonEmptyVec<TemplateString>,
+    pub(crate) user: TemplateString,
+    pub(crate) group: TemplateString,
+    pub(crate) invert: bool,
+}
+}
+
+#[derive(Debug)]
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DebconfPriority {
@@ -626,36 +510,33 @@ pub enum DebconfPriority {
     Dynamic { script: String },
 }
 
-#[derive(Deserialize)]
-pub struct ExternalVar {
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default = "create_true")]
-    pub store: bool,
-    #[serde(default)]
-    pub ignore_empty: bool,
-    pub structure: Option<Vec<String>>,
+serde_struct! {
+pub(crate) struct ExternalVar {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) name: String,
+    pub(crate) store: bool,
+    pub(crate) ignore_empty: bool,
+    pub(crate) structure: Vec<String>,
+}
 }
 
-#[derive(Deserialize)]
-pub struct HiddenVar {
-    #[serde(flatten)]
-    pub ty: VarType,
-    #[serde(default)]
-    pub ignore_empty: bool,
-    #[serde(default = "create_true")]
-    pub store: bool,
-    #[serde(flatten)]
-    pub val: HiddenVarVal,
-    pub structure: Option<Vec<String>>,
+serde_struct! {
+pub(crate) struct HiddenVar {
+    pub(crate) unknown,
+    pub(crate) span,
+    #[serde(rename = "type")]
+    pub(crate) ty: Spanned<String>,
+    pub(crate) ignore_empty: bool,
+    pub(crate) store: bool,
+    pub(crate) constant: String,
+    pub(crate) script: TemplateString,
+    pub(crate) template: String,
+    pub(crate) structure: Vec<String>,
+    pub(crate) file_type: FileType,
+    pub(crate) create: CreateFsObj,
 }
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HiddenVarVal {
-    Constant(String),
-    Script(TemplateString),
-    Template(String),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -672,37 +553,32 @@ pub enum DirRepr {
 }
 
 #[derive(Deserialize, Clone, Debug)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum VarType {
-    String,
-    Uint,
-    Bool,
-    BindHost,
-    BindPort,
-    Path { file_type: Option<FileType>, create: Option<CreateFsObj>, },
-}
-
-#[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum FileType {
     Regular,
     Dir,
 }
 
-#[derive(Deserialize, Clone, Debug)]
-pub struct CreateFsObj {
+serde_struct! {
+pub(crate) struct CreateFsObj {
+    pub(crate) unknown,
+    pub(crate) span,
+
     // TODO: use better type
-    pub mode: u16,
-    pub owner: TemplateString,
-    pub group: TemplateString,
-    #[serde(default)]
-    pub only_parent: bool,
+    pub(crate) mode: u16,
+    pub(crate) owner: TemplateString,
+    pub(crate) group: TemplateString,
+    pub(crate) only_parent: bool,
+}
 }
 
-#[derive(Deserialize, Clone, Debug)]
-pub struct Alternative {
-    pub name: String,
-    pub dest: String,
-    pub priority: u32,
+serde_struct! {
+pub(crate) struct Alternative {
+    pub(crate) unknown,
+    pub(crate) span,
+
+    pub(crate) name: String,
+    pub(crate) dest: String,
+    pub(crate) priority: u32,
+}
 }

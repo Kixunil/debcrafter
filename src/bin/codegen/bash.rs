@@ -1,6 +1,5 @@
 use std::fmt;
-use debcrafter::input::InternalVarCondition;
-use debcrafter::im_repr::PackageOps;
+use debcrafter::im_repr::{PackageOps, InternalVarCondition};
 
 struct ShellEscaper<W: fmt::Write>(W);
 

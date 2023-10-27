@@ -1,18 +1,63 @@
 use std::borrow::Cow;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
+use std::fmt;
 use crate::template::TemplateString;
 use crate::types::{VPackageName, Variant, NonEmptyMap};
+use std::path::{Path, PathBuf};
+use indexmap::IndexMap as OrderedHashMap;
 
 mod base;
 mod service;
 mod conf_ext;
+mod vars;
 
 pub use base::BasePackageSpec;
 pub use service::{ServicePackageSpec, ConfParam, ServiceInstance};
 pub use conf_ext::ConfExtPackageSpec;
+pub use vars::{VarType, InternalVar, ExternalVar, HiddenVar, HiddenVarVal, InternalVarCondition};
 
-pub use crate::input::{Plug, FileDeps, Migration, MigrationVersion, Database, ExtraGroup, Architecture, RuntimeDir, BoolOrVecTemplateString, ConfDir, UserSpec, CreateUser, Config, ConfType, DebconfPriority, DirRepr, GeneratedType, VarType, FileVar, FileType, ConfFormat, DbConfig, HiddenVarVal, Alternative, PostProcess};
+pub use crate::input::{FileDeps, Database, Architecture, BoolOrVecTemplateString, DebconfPriority, DirRepr, FileVar, FileType, ConfFormat};
 use super::{Map, Set};
+
+macro_rules! require_fields {
+    ($struct:expr, $($field:ident),+ $(,)?) => {
+        {
+            let mut missing_fields = Vec::new();
+        $(
+            if $struct.$field.is_none() {
+                missing_fields.push(stringify!($field));
+            }
+        )+
+            if !missing_fields.is_empty() {
+                return Err(PackageError::MissingFields($struct.span, missing_fields));
+            }
+        }
+        $(
+            let $field = $struct.$field.unwrap();
+        )+
+    }
+}
+
+/*
+macro_rules! require_fields_one_of {
+    ($struct:expr, $name:expr, $([$($field:ident),+ $(,)?] => $code:block),+ $(,)?) => {
+        {
+            let mut found = None;
+            $(
+            if let ($(Some($field)),+) = ($($struct.$field),+) {
+                if found.is_some() {
+                    return Err(PackageError::Ambiguous($name));
+                }
+                found = Some($code);
+            }
+            )+
+            found.ok_or(&[$([$($field),+]),+])?
+        }
+    }
+}
+*/
+
+pub(crate) use require_fields;
 
 pub trait PackageConfig {
     fn config(&self) -> &Map<TemplateString, Config>;
@@ -94,43 +139,184 @@ impl Package {
             custom_postrm_script: self.custom_postrm_script.as_ref(),
         }
     }
+
+    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
+        let mut result = Map::new();
+        for (_, conf) in &self.config {
+            if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
+                for (pkg, _) in evars {
+                    let deps = deps.as_mut().map(|deps| &mut **deps);
+                    result.entry(pkg.to_owned()).or_insert_with(load_include(dir.as_ref(), &pkg, deps));
+                }
+            }
+        }
+
+        if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
+            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), &extends, deps));
+        }
+
+        result
+    }
+}
+
+pub struct Config {
+    pub public: bool,
+    pub external: bool,
+    pub conf_type: ConfType,
+}
+
+impl TryFrom<crate::input::Config> for Config {
+    type Error = PackageError;
+
+    fn try_from(value: crate::input::Config) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        let conf_type = match (value.content, value.format) {
+            (Some(content), None) => {
+                ConfType::Static {
+                    content, internal: value.internal.unwrap_or_default(),
+                }
+            },
+            (None, Some(format)) => {
+                let ivars = value.ivars.unwrap_or_default().into_iter()
+                    .map(|(name, var)| Ok((name, var.try_into()?)))
+                    .collect::<Result<_, PackageError>>()?;
+                let hvars = value.hvars.unwrap_or_default().into_iter()
+                    .map(|(name, var)| Ok((name, var.try_into()?)))
+                    .collect::<Result<_, PackageError>>()?;
+                let evars = value.evars.unwrap_or_default().into_iter()
+                    .map(|(name, var)| Ok((name, var.into_iter().map(|var| Ok((var.0, var.1.try_into()?))).collect::<Result<_, PackageError>>()?)))
+                    .collect::<Result<_, PackageError>>()?;
+                ConfType::Dynamic {
+                    format,
+                    insert_header: value.insert_header,
+                    with_header: value.with_header.unwrap_or_default(),
+                    ivars,
+                    evars,
+                    hvars,
+                    fvars: value.fvars.unwrap_or_default(),
+                    cat_dir: value.cat_dir,
+                    cat_files: value.cat_files.unwrap_or_default(),
+                    comment: value.comment,
+                    postprocess: value.postprocess.map(TryFrom::try_from).transpose()?,
+                }
+            },
+            (None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["content"], &["format"]])),
+            (Some(_), Some(_)) => return Err(PackageError::Ambiguous(value.span, "configuration type")),
+        };
+
+        Ok(Config {
+            public: value.public.unwrap_or_default(),
+            external: value.external.unwrap_or_default(),
+            conf_type,
+        })
+    }
+}
+
+fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
+    move || {
+        let file = name.sps_path(dir);
+        let package = crate::input::Package::load(&file).expect("Failed to load include");
+        deps.as_mut().map(|deps| deps.insert(file));
+        package.try_into().unwrap()
+    }
 }
 
 impl TryFrom<crate::input::Package> for Package {
     type Error = PackageError;
 
     fn try_from(value: crate::input::Package) -> Result<Self, Self::Error> {
-        use crate::input;
+        check_unknown_fields(value.unknown)?;
 
-        let (spec, summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign) = match value.spec {
-            input::PackageSpec::Base(input::BasePackageSpec { architecture, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, }) => (PackageSpec::Base(BasePackageSpec { architecture, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
-            input::PackageSpec::Service(input::ServicePackageSpec { bin_package, min_patch, binary, bare_conf_param, conf_param, conf_d, user, config, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, summary, long_doc, databases, extra_groups, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, allow_suid_sgid, }) => (PackageSpec::Service(ServicePackageSpec { bin_package, min_patch, binary, conf_param: ConfParam::from_input(conf_param, bare_conf_param), conf_d, user, condition_path_exists, service_type, exec_stop, after, before, wants, requires, binds_to, part_of, wanted_by, refuse_manual_start, refuse_manual_stop, runtime_dir, extra_service_config, allow_suid_sgid, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
-            input::PackageSpec::ConfExt(input::ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, config, summary, long_doc, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign, extra_groups, }) => (PackageSpec::ConfExt(ConfExtPackageSpec { extends, replaces, depends_on_extended, min_patch, external, extra_groups, }), summary, long_doc, config, databases, add_files, add_dirs, add_links, add_manpages, alternatives, patch_foreign),
+        let extra_groups = value.extra_groups
+            .unwrap_or_default()
+            .into_iter()
+            .map(|group| Ok((group.0, group.1.try_into()?)))
+            .collect::<Result<_, PackageError>>()?;
+
+        let spec = match (value.architecture, value.bin_package, value.binary, value.user, value.extends) {
+            (Some(architecture), None, None, None, None) => PackageSpec::Base(BasePackageSpec { architecture: architecture.into_inner(), }),
+            (None, Some(bin_package), Some(binary), Some(user), None) => {
+                let service = ServicePackageSpec { bin_package,
+                    min_patch: value.min_patch,
+                    binary,
+                    conf_param: ConfParam::from_input(value.conf_param, value.bare_conf_param.unwrap_or_default()),
+                    conf_d: value.conf_d.map(TryInto::try_into).transpose()?,
+                    user: user.try_into()?,
+                    condition_path_exists: value.condition_path_exists,
+                    service_type: value.service_type,
+                    exec_stop: value.exec_stop,
+                    after: value.after,
+                    before: value.before,
+                    wants: value.wants,
+                    requires: value.requires,
+                    binds_to: value.binds_to,
+                    part_of: value.part_of,
+                    wanted_by: value.wanted_by,
+                    refuse_manual_start: value.refuse_manual_start.unwrap_or_default(),
+                    refuse_manual_stop: value.refuse_manual_stop.unwrap_or_default(),
+                    runtime_dir: value.runtime_dir.map(TryInto::try_into).transpose()?,
+                    extra_service_config: value.extra_service_config,
+                    allow_suid_sgid: value.allow_suid_sgid.unwrap_or_default(),
+                    extra_groups,
+                };
+                PackageSpec::Service(service)
+            },
+            (None, None, None, None, Some(extends)) => PackageSpec::ConfExt(ConfExtPackageSpec { extends: extends.into_inner(), replaces: value.replaces.unwrap_or_default(), depends_on_extended: value.depends_on_extended.unwrap_or_default(), min_patch: value.min_patch, external: value.external.unwrap_or_default(), extra_groups, }),
+            (None, None, None, None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["architecture"], &["bin_package", "binary", "user"], &["extends"]])),
+            (_architecture, _bin_package, _binary, _user, _extends) => return Err(PackageError::Ambiguous(value.span, "package type")),
         };
 
+        let migrations = value.migrations.unwrap_or_default().into_iter()
+            .map(|(version, migration)| Ok((version.try_into()?, migration.try_into()?)))
+            .collect::<Result<_, PackageError>>()?;
+
+        let config = value.config.unwrap_or_default().into_iter()
+            .map(|(key, value)| Ok((key, value.try_into()?)))
+            .collect::<Result<_, PackageError>>()?;
+
+        let plug = value.plug
+            .unwrap_or_default()
+            .into_iter()
+            .map(TryFrom::try_from)
+            .collect::<Result<_, _>>()?;
+
+        let databases = value.databases
+            .unwrap_or_default()
+            .into_iter()
+            .map(|db| Ok((db.0, db.1.try_into()?)))
+            .collect::<Result<_, PackageError>>()?;
+
+        let alternatives = value.alternatives
+            .unwrap_or_default()
+            .into_iter()
+            .map(|alternative| Ok((alternative.0, alternative.1.try_into()?)))
+            .collect::<Result<_, PackageError>>()?;
+
+        require_fields!(value, name);
         Ok(Package {
-            name: value.name,
-            map_variants: value.map_variants,
-            summary: summary.expect("missing summary"),
-            long_doc,
+            name,
+            map_variants: value.map_variants.unwrap_or_default(),
+            summary: value.summary.expect("missing summary"),
+            long_doc: value.long_doc,
             spec,
             config,
             databases,
-            depends: value.depends,
-            provides: value.provides,
-            recommends: value.recommends,
-            suggests: value.suggests,
-            conflicts: value.conflicts,
-            extended_by: value.extended_by,
-            add_files,
-            add_dirs,
-            add_links,
-            add_manpages,
+            depends: value.depends.unwrap_or_default(),
+            provides: value.provides.unwrap_or_default(),
+            recommends: value.recommends.unwrap_or_default(),
+            suggests: value.suggests.unwrap_or_default(),
+            conflicts: value.conflicts.unwrap_or_default(),
+            extended_by: value.extended_by.unwrap_or_default(),
+            add_files: value.add_files.unwrap_or_default(),
+            add_dirs: value.add_dirs.unwrap_or_default(),
+            add_links: value.add_links.unwrap_or_default(),
+            add_manpages: value.add_manpages.unwrap_or_default(),
             alternatives,
-            patch_foreign,
-            extra_triggers: value.extra_triggers,
-            migrations: value.migrations,
-            plug: value.plug,
+            patch_foreign: value.patch_foreign.unwrap_or_default(),
+            extra_triggers: value.extra_triggers.unwrap_or_default(),
+            migrations,
+            plug,
             custom_postrm_script: value.custom_postrm_script,
         })
     }
@@ -138,6 +324,18 @@ impl TryFrom<crate::input::Package> for Package {
 
 #[derive(Debug)]
 pub enum PackageError {
+    Ambiguous(Span, &'static str),
+    MissingFields(Span, Vec<&'static str>),
+    MissingFieldsOneOf(Span, &'static [&'static [&'static str]]),
+    UnknownFields(Vec<toml::Spanned<String>>),
+    UnknownVarType(toml::Spanned<String>),
+    Migration(MigrationVersionError),
+}
+
+impl From<MigrationVersionError> for PackageError {
+    fn from(value: MigrationVersionError) -> Self {
+        PackageError::Migration(value)
+    }
 }
 
 impl PackageConfig for Package {
@@ -364,4 +562,380 @@ pub enum PackageSpec {
     Service(ServicePackageSpec),
     ConfExt(ConfExtPackageSpec),
     Base(BasePackageSpec),
+}
+
+pub enum ConfType {
+    Static { content: String, internal: bool, },
+    Dynamic {
+        format: ConfFormat,
+        insert_header: Option<TemplateString>,
+        with_header: bool,
+        ivars: OrderedHashMap<String, InternalVar>,
+        evars: Map<VPackageName, Map<String, ExternalVar>>,
+        hvars: OrderedHashMap<String, HiddenVar>,
+        fvars: Map<String, FileVar>,
+        cat_dir: Option<String>,
+        cat_files: Set<String>,
+        comment: Option<String>,
+        // Command to run after creating whole config file
+        postprocess: Option<PostProcess>,
+    },
+}
+
+pub struct GeneratedFile {
+    pub ty: GeneratedType,
+    pub internal: bool,
+}
+
+impl TryFrom<crate::input::GeneratedFile> for GeneratedFile {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::GeneratedFile) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        let ty = match (value.file, value.dir) {
+            (Some(file), None) => GeneratedType::File(file),
+            (None, Some(dir)) => GeneratedType::Dir(dir),
+            (None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["file"], &["dir"]])),
+            (Some(_), Some(_)) => return Err(PackageError::Ambiguous(value.span, "type of generated filesystem object")),
+        };
+
+        Ok(GeneratedFile {
+            ty,
+            internal: value.internal.unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Eq, PartialEq)]
+pub enum GeneratedType {
+    File(TemplateString),
+    Dir(TemplateString),
+}
+
+pub struct PostProcess {
+    pub command: Vec<TemplateString>,
+    pub generates: Vec<GeneratedFile>,
+    pub stop_service: bool,
+}
+
+impl TryFrom<crate::input::PostProcess> for PostProcess {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::PostProcess) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        let generates = value.generates.unwrap_or_default().into_iter()
+            .map(TryFrom::try_from)
+            .collect::<Result<_, _>>()?;
+
+        require_fields!(value, command);
+        Ok(PostProcess {
+            command,
+            generates,
+            stop_service: value.stop_service.unwrap_or_default(),
+        })
+    }
+}
+
+pub struct Plug {
+    pub run_as_user: TemplateString,
+    pub run_as_group: Option<TemplateString>,
+    pub register_cmd: Vec<TemplateString>,
+    pub unregister_cmd: Vec<TemplateString>,
+    pub read_only_root: bool,
+}
+
+impl TryFrom<crate::input::Plug> for Plug {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::Plug) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, run_as_user, register_cmd, unregister_cmd);
+        Ok(Plug {
+            run_as_user,
+            run_as_group: value.run_as_group,
+            register_cmd,
+            unregister_cmd,
+            read_only_root: value.read_only_root.unwrap_or(true),
+        })
+    }
+}
+
+pub struct Migration {
+    pub config: Option<TemplateString>,
+    pub postinst_finish: Option<TemplateString>,
+}
+
+impl TryFrom<crate::input::Migration> for Migration {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::Migration) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        if value.config.is_none() && value.postinst_finish.is_none() {
+            return Err(PackageError::MissingFieldsOneOf(value.span, &[&["config"], &["postinst_finish"]]));
+        }
+
+        Ok(Migration {
+            config: value.config,
+            postinst_finish: value.postinst_finish,
+        })
+    }
+}
+
+pub struct DbConfig {
+    pub template: String,
+    pub config_file_owner: Option<String>,
+    pub config_file_group: Option<String>,
+}
+
+impl TryFrom<crate::input::DbConfig> for DbConfig {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::DbConfig) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, template);
+        Ok(DbConfig {
+            template,
+            config_file_owner: value.config_file_owner,
+            config_file_group: value.config_file_group,
+        })
+    }
+}
+
+pub struct ExtraGroup {
+    pub create: bool,
+}
+
+impl TryFrom<crate::input::ExtraGroup> for ExtraGroup {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::ExtraGroup) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, create);
+        Ok(ExtraGroup {
+            create,
+        })
+    }
+}
+
+pub struct RuntimeDir {
+    pub mode: String,
+}
+
+impl TryFrom<crate::input::RuntimeDir> for RuntimeDir {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::RuntimeDir) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, mode);
+        Ok(RuntimeDir {
+            mode,
+        })
+    }
+}
+
+pub struct ConfDir {
+    pub param: String,
+    pub name: String,
+}
+
+impl TryFrom<crate::input::ConfDir> for ConfDir {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::ConfDir) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, param, name);
+        Ok(ConfDir {
+            param,
+            name,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct UserSpec {
+    pub name: Option<TemplateString>,
+    pub group: bool,
+    pub create: Option<CreateUser>,
+}
+
+impl TryFrom<crate::input::UserSpec> for UserSpec {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::UserSpec) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        Ok(UserSpec {
+            name: value.name,
+            group: value.group.unwrap_or_default(),
+            create: value.create.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct CreateUser {
+    pub home: bool,
+}
+
+impl TryFrom<crate::input::CreateUser> for CreateUser {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::CreateUser) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, home);
+        Ok(CreateUser {
+            home,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Alternative {
+    pub name: String,
+    pub dest: String,
+    pub priority: u32,
+}
+
+impl TryFrom<crate::input::Alternative> for Alternative {
+    type Error = PackageError;
+
+
+    fn try_from(value: crate::input::Alternative) -> Result<Self, Self::Error> {
+        check_unknown_fields(value.unknown)?;
+
+        require_fields!(value, name, dest, priority);
+        Ok(Alternative {
+            name,
+            dest,
+            priority,
+        })
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Span {
+    pub(crate) begin: usize,
+    pub(crate) end: usize,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct MigrationVersion(String);
+
+impl MigrationVersion {
+    pub fn version(&self) -> &str {
+        &self.0[3..]
+    }
+}
+
+impl std::cmp::Ord for MigrationVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self == other {
+            return std::cmp::Ordering::Equal;
+        }
+        if std::process::Command::new("dpkg")
+            .args(&["--compare-versions", self.version(), "lt", &other.version()])
+            .spawn()
+            .expect("Failed to compare versions")
+            .wait()
+            .expect("Failed to compare versions")
+            .success() {
+                std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    }
+}
+
+impl std::cmp::PartialOrd for MigrationVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl TryFrom<toml::Spanned<String>> for MigrationVersion {
+    type Error = MigrationVersionError;
+
+    fn try_from(string: toml::Spanned<String>) -> Result<Self, Self::Error> {
+        let span = Span { begin: string.span().0, end: string.span().1 };
+        let string = string.into_inner();
+
+        if !string.starts_with("<< ") {
+            let error = MigrationVersionError {
+                error: MigrationVersionErrorInner::BadPrefix(string),
+                span,
+            };
+            return Err(error);
+        }
+        let output = std::process::Command::new("dpkg")
+            .args(&["--validate-version", &string[3..]])
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to compare versions")
+            .wait_with_output()
+            .expect("Failed to compare versions");
+        if output.status.success() {
+            Ok(MigrationVersion(string))
+        } else {
+            let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
+            let error = MigrationVersionError {
+                error: MigrationVersionErrorInner::Invalid(err_message),
+                span,
+            };
+            Err(error)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum MigrationVersionErrorInner {
+    BadPrefix(String),
+    Invalid(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct MigrationVersionError {
+    error: MigrationVersionErrorInner,
+    // Debug is fine for now actually
+    #[allow(dead_code)]
+    span: Span,
+}
+
+impl fmt::Display for MigrationVersionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // strip_prefix method is in str since 1.45, we support 1.34
+        let strip_prefix = "dpkg: warning: ";
+        match &self.error {
+            MigrationVersionErrorInner::BadPrefix(string) => write!(f, "invalid migration version '{}', the version must start with '<< '", string),
+            MigrationVersionErrorInner::Invalid(string) if string.starts_with(strip_prefix) => write!(f, "{}", &string[strip_prefix.len()..]),
+            MigrationVersionErrorInner::Invalid(string) => write!(f, "{}", string),
+        }
+    }
+}
+
+
+fn check_unknown_fields(unknown: Vec<toml::Spanned<String>>) -> Result<(), PackageError> {
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(PackageError::UnknownFields(unknown))
+    }
 }

@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use crate::Map;
 
+#[derive(Debug)]
 pub struct NonEmptyMap<K, V, M: Borrow<Map<K, V>>>(M, std::marker::PhantomData<(K, V)>);
 
 #[derive(Debug, thiserror::Error)]

@@ -1,4 +1,4 @@
-use crate::input::{BoolOrVecTemplateString, ExtraGroup};
+use crate::im_repr::{BoolOrVecTemplateString, ExtraGroup};
 use crate::types::VPackageName;
 use crate::template::TemplateString;
 use crate::Map;

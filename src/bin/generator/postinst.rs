@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageInstance, ServiceInstance, ConstantsByVariant, ConfFormat, VarType, FileType, FileVar, DirRepr, Migration, MigrationVersion, PackageOps};
+use debcrafter::im_repr::{PackageInstance, ServiceInstance, ConstantsByVariant, ConfFormat, VarType, FileType, FileVar, DirRepr, Migration, MigrationVersion, PackageOps, InternalVarCondition};
 use debcrafter::Map;
 use debcrafter::types::VPackageName;
 use crate::codegen::{LazyCreate, LazyCreateBuilder, WriteHeader};
@@ -7,7 +7,6 @@ use std::fmt;
 use debcrafter::postinst::{HandlePostinst, Config, CreateDbRequest, CommandEnv};
 use std::convert::TryFrom;
 use crate::codegen::bash::write_ivar_conditions;
-use debcrafter::input::InternalVarCondition;
 
 struct ShellEscaper<W: fmt::Write>(W);
 

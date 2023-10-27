@@ -1,8 +1,7 @@
 use std::io::{self, Write};
-use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, DebconfPriority};
+use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, DebconfPriority, InternalVarCondition};
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
-use debcrafter::input::InternalVarCondition;
 use crate::codegen::bash::write_ivar_conditions;
 use debcrafter::types::VarName;
 

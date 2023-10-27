@@ -209,13 +209,13 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 
     for (package, filename) in packages {
         use debcrafter::im_repr::PackageOps;
-        let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename); &mut **deps});
+        let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); &mut **deps});
+        let package = debcrafter::im_repr::Package::try_from(package).unwrap_or_else(|error| panic!("invalid package {}: {:?}", filename.display(), error));
         let includes = package
             .load_includes(source_dir, deps_opt)
             .into_iter()
-            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package)?)))
+            .map(|(name, package)| Ok((name.clone(), debcrafter::im_repr::Package::try_from(package).unwrap_or_else(|error| panic!("invalid package {:?}: {:?}", name, error)))))
             .collect::<Result<_, PackageError>>().expect("invalid package");
-        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
 
         let instances = if source.variants.is_empty() || !package.name.is_templated() {
             Either::Left(std::iter::once(package.instantiate(None, Some(&includes))))
@@ -275,12 +275,12 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
         .map(|package| load_package(source_dir, &package));
 
     for (package, _filename) in packages {
+        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
         let includes = package
             .load_includes(source_dir, None)
             .into_iter()
-            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package)?)))
+            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package).expect("invalid package"))))
             .collect::<Result<_, PackageError>>().expect("invalid package");
-        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
 
         if source.variants.is_empty() || !package.name.is_templated() {
             package.instantiate(None, Some(&includes));
