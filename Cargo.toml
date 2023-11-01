@@ -11,7 +11,6 @@ serde = "1"
 serde_derive = "1"
 toml = "0.5.4"
 void = "1"
-itertools = "0.9"
 thiserror = "1.0.22"
 either = "1.6.1"
 indexmap = { version = "1.6.2", features = ["serde"] }

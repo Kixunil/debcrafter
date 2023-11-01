@@ -3,7 +3,7 @@ use crate::types::{NonEmptyMap, VPackageName, VarName};
 use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess, InternalVarCondition};
 use std::fmt;
 use std::borrow::Cow;
-use itertools::Either;
+use either::Either;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use crate::template::TemplateString;
