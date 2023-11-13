@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 use std::convert::TryFrom;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use serde_derive::Deserialize;
+use super::Spanned;
 
 const PKG_NAME_VARIANT_SUFFIX: &str = "-@variant";
 
@@ -47,21 +49,33 @@ impl VPackageName {
     }
 
     fn parse(string: impl std::ops::Deref<Target=str> + Into<String>) -> Result<Self, VPackageNameError> {
-        for c in Self::_base(&string).chars() {
+        let mut invalid_chars = Vec::new();
+        for (i, c) in Self::_base(&string).char_indices() {
             if c != '-' && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
-                return Err(VPackageNameError { c, string: string.into() });
+                invalid_chars.push(i);
             }
         }
-        Ok(VPackageName(string.into()))
+        if invalid_chars.is_empty() {
+            Ok(VPackageName(string.into()))
+        } else {
+            Err(VPackageNameError { invalid_chars, string: string.into() })
+        }
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("Invalid character {c} in package name {string}")]
+#[derive(Debug)]
 pub struct VPackageNameError {
-    c: char,
-    string: String,
+    pub(crate) invalid_chars: Vec<usize>,
+    pub(crate) string: String,
 }
+
+impl fmt::Display for VPackageNameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid char '{}' in package name '{}'", self.invalid_chars.first().unwrap(), self.string)
+    }
+}
+
+impl std::error::Error for VPackageNameError { }
 
 impl TryFrom<String> for VPackageName {
     type Error = VPackageNameError;
@@ -79,3 +93,39 @@ impl<'a> TryFrom<&'a str> for VPackageName {
     }
 }
 
+impl TryFrom<toml::Spanned<String>> for VPackageName {
+    type Error = Spanned<VPackageNameError>;
+
+    fn try_from(string: toml::Spanned<String>) -> Result<Self, Self::Error> {
+        let (span_start, span_end) = string.span();
+        Self::parse(string.into_inner()).map_err(|error| Spanned { value: error, span_start, span_end })
+    }
+}
+
+impl TryFrom<Spanned<String>> for VPackageName {
+    type Error = Spanned<VPackageNameError>;
+
+    fn try_from(Spanned { value, span_start, span_end }: Spanned<String>) -> Result<Self, Self::Error> {
+        Self::parse(value).map_err(|error| {
+            Spanned {
+                value: error,
+                span_start,
+                span_end,
+            }
+        })
+    }
+}
+
+impl<'a> TryFrom<Spanned<&'a str>> for VPackageName {
+    type Error = Spanned<VPackageNameError>;
+
+    fn try_from(string: Spanned<&'a str>) -> Result<Self, Self::Error> {
+        Self::parse(string.value).map_err(|error| {
+            Spanned {
+                value: error,
+                span_start: string.span_start,
+                span_end: string.span_end,
+            }
+        })
+    }
+}

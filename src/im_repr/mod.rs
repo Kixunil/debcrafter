@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use crate::template::TemplateString;
-use crate::types::{VPackageName, Variant, NonEmptyMap};
+use crate::types::{VPackageName, VPackageNameError, Variant, NonEmptyMap, Spanned};
 use std::path::{Path, PathBuf};
 use indexmap::IndexMap as OrderedHashMap;
 
@@ -14,10 +14,12 @@ mod vars;
 pub use base::BasePackageSpec;
 pub use service::{ServicePackageSpec, ConfParam, ServiceInstance};
 pub use conf_ext::ConfExtPackageSpec;
-pub use vars::{VarType, InternalVar, ExternalVar, HiddenVar, HiddenVarVal, InternalVarCondition};
+pub use vars::{VarType, PathVar, InternalVar, ExternalVar, HiddenVar, HiddenVarVal, InternalVarCondition};
 
 pub use crate::input::{FileDeps, Database, Architecture, BoolOrVecTemplateString, DebconfPriority, DirRepr, FileVar, FileType, ConfFormat};
+
 use super::{Map, Set};
+use crate::types::VarName;
 
 macro_rules! require_fields {
     ($struct:expr, $($field:ident),+ $(,)?) => {
@@ -146,7 +148,7 @@ impl Package {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for (pkg, _) in evars {
                     let deps = deps.as_mut().map(|deps| &mut **deps);
-                    result.entry(pkg.to_owned()).or_insert_with(load_include(dir.as_ref(), &pkg, deps));
+                    result.entry(pkg.value.to_owned()).or_insert_with(load_include(dir.as_ref(), &pkg, deps));
                 }
             }
         }
@@ -156,6 +158,264 @@ impl Package {
         }
 
         result
+    }
+}
+
+#[derive(Default)]
+struct MissingVars {
+    internal: Vec<(Spanned<String>, Option<std::ops::Range<usize>>)>,
+    external: Vec<Spanned<String>>,
+    any: Vec<(Spanned<String>, Option<std::ops::Range<usize>>)>,
+}
+
+impl MissingVars {
+    fn push_internal(&mut self, var: Spanned<String>) {
+        self.internal.push((var, None))
+    }
+
+    fn push_external(&mut self, var: Spanned<String>) {
+        self.external.push(var)
+    }
+
+    fn push_any(&mut self, var: Spanned<String>) {
+        self.any.push((var, None))
+    }
+
+    fn check_internal<S: AsRef<str>>(&mut self, var: &Spanned<S>) {
+        for error in &mut self.internal {
+            if error.1.is_none() && error.0.value == var.as_ref() {
+                error.1 = Some(var.span_range());
+            }
+        }
+        self.check_any(var);
+    }
+
+    fn check_any<S: AsRef<str>>(&mut self, var: &Spanned<S>) {
+        for error in &mut self.any {
+            if error.1.is_none() {
+                let var_name = error.0.split_at(error.0.find('/').unwrap() + 1).1;
+                if var_name == var.as_ref() {
+                    error.1 = Some(var.span_range());
+                }
+            }
+        }
+    }
+
+    fn into_errors(self, errors: &mut Vec<PackageError>) {
+        errors.extend(self.internal.into_iter().map(|error| PackageError::IVarNotFound(error.0, error.1)));
+        errors.extend(self.external.into_iter().map(|error| PackageError::EVarNotFound(error)));
+        errors.extend(self.any.into_iter().map(|error| PackageError::VarNotFound(error.0, error.1)));
+    }
+}
+
+impl<'a> PackageInstance<'a> {
+    pub fn validate(&self) -> Result<(), Vec<PackageError>> {
+        self.validate_config()
+    }
+
+    fn validate_config(&self) -> Result<(), Vec<PackageError>> {
+        let mut errors = Vec::new();
+        let mut missing = Default::default();
+        for (_conf_name, config) in self.config() {
+            if let ConfType::Dynamic { ivars, evars, hvars, .. } = &config.conf_type {
+                self.validate_ivars(ivars, evars, &mut missing).unwrap_or_else(|error| errors.extend(error));
+                self.validate_evars(evars).unwrap_or_else(|error| errors.extend(error));
+                self.validate_hvars(hvars, &mut missing).unwrap_or_else(|error| errors.extend(error));
+            }
+        }
+        missing.into_errors(&mut errors);
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn validate_ivars(&self, ivars: &OrderedHashMap<Spanned<String>, InternalVar>, evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>, missing: &mut MissingVars) -> Result<(), Vec<PackageError>> {
+        let mut errors = Vec::new();
+
+        let mut check_ivars = Set::new();
+        for (var, var_spec) in ivars {
+            match (&var_spec.ty, self.variant(), &var_spec.default) {
+                 (VarType::BindPort, Some(_), Some(default)) if default.value.components().vars().count() == 0 => {
+                     errors.push(PackageError::UntemplatedBindPort(var.to_owned(), Some(default.span_range())));
+                }
+                (VarType::BindPort, Some(_), None) => {
+                     errors.push(PackageError::UntemplatedBindPort(var.to_owned(), None));
+                 }
+                _ => (),
+            }
+
+            for cond in &var_spec.conditions {
+                if let InternalVarCondition::Var { name, .. } = cond {
+                    match &**name {
+                        VarName::Internal(var) => if !check_ivars.contains(&**var) {
+                            let var = Spanned {
+                                value: var.to_owned().into(),
+                                span_start: name.span_start + 1,
+                                span_end: name.span_end - 1,
+                            };
+                            missing.push_internal(var);
+                        },
+                        VarName::Absolute(var_package, var) if var_package.expand_to_cow(self.variant()) == self.config_pkg_name() => if !check_ivars.contains(&**var) {
+                            let var = Spanned {
+                                value: var.to_owned().into(),
+                                span_start: name.span_start + 1,
+                                span_end: name.span_end - 1,
+                            };
+                            missing.push_internal(var);
+                        },
+                        VarName::Absolute(var_package, var) => {
+                            let found = evars.get(var_package)
+                                .and_then(|pkg| pkg.get(&**var));
+                            if found.is_none() {
+                                let error = Spanned {
+                                    value: format!("{}/{}", var_package.as_raw(), var),
+                                    span_start: name.span_start + 1,
+                                    span_end: name.span_end - 1,
+                                };
+                                missing.push_external(error);
+                            }
+                        },
+                        VarName::Constant(_) => {
+                            errors.push(PackageError::ConstCond(name.span_range()));
+                        },
+                    }
+                }
+            }
+            check_ivars.insert(&***var);
+            missing.check_internal(&var);
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn validate_evars(&self, evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>) -> Result<(), Vec<PackageError>> {
+        let mut errors = Vec::new();
+
+        for (pkg_name, vars) in evars {
+            let pkg = match self.get_include(pkg_name) {
+                Some(pkg) => pkg,
+                None => {
+                    errors.push(PackageError::PackageNotFound(pkg_name.to_owned()));
+                    continue;
+                },
+            };
+
+            for (var, _var_spec) in vars {
+                let found = &pkg
+                    .config()
+                    .iter()
+                    .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                        ivars.get(&**var)
+                    } else {
+                        None
+                    });
+
+                if found.is_none() {
+                    errors.push(PackageError::EVarNotInPackage(pkg_name.to_owned(), var.to_owned()));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn validate_hvars(&self, hvars: &OrderedHashMap<Spanned<String>, HiddenVar>, missing: &mut MissingVars) -> Result<(), Vec<PackageError>> {
+        let mut errors = Vec::new();
+        let mut hvars_accum = Set::new();
+        for (var, var_spec) in hvars {
+            if let HiddenVarVal::Template(template) = &var_spec.val {
+                for (var, var_pos) in crate::template::parse(&template.value).vars() {
+                    // toml span includes quotes
+                    let var_pos = var_pos + 1;
+                    if let Some(pos) = var.find('/') {
+                        let (pkg_name, var_name) = var.split_at(pos);
+                        let var_name = &var_name[1..];
+
+                        if pkg_name.is_empty() {
+                            let found = self
+                                .config()
+                                .iter()
+                                .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                    ivars.get(var_name)
+                                } else {
+                                    None
+                                })
+                                .map(drop)
+                                .or_else(|| hvars_accum.get(var_name).map(drop));
+
+                            if found.is_none() {
+                                let var = Spanned {
+                                    value: var.to_owned(),
+                                    span_start: template.span_start + var_pos,
+                                    span_end: template.span_start + var_pos + var.len(),
+                                };
+                                missing.push_any(var);
+                            }
+                        } else {
+                            let spanned_pkg_name = Spanned {
+                                value: pkg_name,
+                                span_start: template.span_start + var_pos,
+                                span_end: template.span_start + var_pos + pkg_name.len(),
+                            };
+                            match VPackageName::try_from(spanned_pkg_name) {
+                                Ok(v_pkg_name) => {
+                                    let found = self
+                                        .config()
+                                        .iter()
+                                        .find_map(|(_, conf)| {
+                                            if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
+                                                evars.get(&v_pkg_name)
+                                                    .and_then(|pkg| pkg.get(var_name))
+                                            } else {
+                                                None
+                                            }
+                                        });
+                                    if found.is_none() {
+                                        let error = Spanned {
+                                            value: var.to_owned(),
+                                            span_start: template.span_start + var_pos,
+                                            span_end: template.span_start + var_pos + var.len()
+                                        };
+                                        missing.push_external(error)
+                                    }
+                                },
+                                Err(error) => {
+                                    errors.push(PackageError::InvalidPackageName(error));
+                                },
+                            };
+                        }
+                    } else {
+                        use crate::template::Query;
+
+                        if self.constants_by_variant().get(var).is_none() {
+                            let error = PackageError::ConstantNotFound(Spanned {
+                                value: var.to_owned(),
+                                span_start: template.span_start + var_pos,
+                                span_end: template.span_start + var_pos + var.len()
+                            });
+                            errors.push(error);
+                        }
+                    }
+                }
+            }
+            hvars_accum.insert(&***var);
+            missing.check_any(&var);
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -179,13 +439,13 @@ impl TryFrom<crate::input::Config> for Config {
             },
             (None, Some(format)) => {
                 let ivars = value.ivars.unwrap_or_default().into_iter()
-                    .map(|(name, var)| Ok((name, var.try_into()?)))
+                    .map(|(name, var)| Ok((name.into(), var.try_into()?)))
                     .collect::<Result<_, PackageError>>()?;
                 let hvars = value.hvars.unwrap_or_default().into_iter()
-                    .map(|(name, var)| Ok((name, var.try_into()?)))
+                    .map(|(name, var)| Ok((name.into(), var.try_into()?)))
                     .collect::<Result<_, PackageError>>()?;
                 let evars = value.evars.unwrap_or_default().into_iter()
-                    .map(|(name, var)| Ok((name, var.into_iter().map(|var| Ok((var.0, var.1.try_into()?))).collect::<Result<_, PackageError>>()?)))
+                    .map(|(name, var)| Ok((name.into(), var.into_iter().map(|var| Ok((var.0.into(), var.1.try_into()?))).collect::<Result<_, PackageError>>()?)))
                     .collect::<Result<_, PackageError>>()?;
                 ConfType::Dynamic {
                     format,
@@ -214,7 +474,7 @@ impl TryFrom<crate::input::Config> for Config {
 }
 
 fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
-    use crate::error_report::IntoDiagnostic;
+    use crate::error_report::Report;
 
     move || {
         let file = name.sps_path(dir);
@@ -333,6 +593,16 @@ pub enum PackageError {
     UnknownFields(Vec<toml::Spanned<String>>),
     UnknownVarType(toml::Spanned<String>),
     Migration(MigrationVersionError),
+    InvalidPackageName(Spanned<VPackageNameError>),
+    CreatePathWithoutType(std::ops::Range<usize>),
+    IVarNotFound(Spanned<String>, Option<std::ops::Range<usize>>),
+    EVarNotFound(Spanned<String>),
+    VarNotFound(Spanned<String>, Option<std::ops::Range<usize>>),
+    ConstantNotFound(Spanned<String>),
+    EVarNotInPackage(Spanned<VPackageName>, Spanned<String>),
+    UntemplatedBindPort(Spanned<String>, Option<std::ops::Range<usize>>),
+    ConstCond(std::ops::Range<usize>),
+    PackageNotFound(Spanned<VPackageName>),
 }
 
 impl From<MigrationVersionError> for PackageError {
@@ -573,9 +843,9 @@ pub enum ConfType {
         format: ConfFormat,
         insert_header: Option<TemplateString>,
         with_header: bool,
-        ivars: OrderedHashMap<String, InternalVar>,
-        evars: Map<VPackageName, Map<String, ExternalVar>>,
-        hvars: OrderedHashMap<String, HiddenVar>,
+        ivars: OrderedHashMap<Spanned<String>, InternalVar>,
+        evars: Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>,
+        hvars: OrderedHashMap<Spanned<String>, HiddenVar>,
         fvars: Map<String, FileVar>,
         cat_dir: Option<String>,
         cat_files: Set<String>,

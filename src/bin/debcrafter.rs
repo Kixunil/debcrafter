@@ -6,7 +6,7 @@ use codegen::{LazyCreateBuilder};
 use debcrafter::{Map, Set};
 use debcrafter::im_repr::{Package, PackageInstance, ServiceInstance};
 use debcrafter::types::{VPackageName, Variant};
-use debcrafter::error_report::IntoDiagnostic;
+use debcrafter::error_report::Report;
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
 use either::Either;
@@ -148,14 +148,14 @@ fn copy_changelog(deb_dir: &Path, source: &Path) {
     }
 }
 
-fn load_package(source_dir: &Path, package: &VPackageName) -> (Package, PathBuf) {
+fn load_package(source_dir: &Path, package: &VPackageName) -> (Package, PathBuf, String) {
     let filename = package.sps_path(source_dir);
     let source = std::fs::read_to_string(&filename).unwrap_or_else(|error| panic!("failed to read {}: {}", filename.display(), error));
     let package = toml::from_str::<debcrafter::input::Package>(&source)
         .expect("Failed to parse package")
         .try_into()
-        .unwrap_or_else(|error: debcrafter::im_repr::PackageError| error.report(filename.display().to_string(), source));
-    (package, filename)
+        .unwrap_or_else(|error: debcrafter::im_repr::PackageError| error.report(filename.display().to_string(), &source));
+    (package, filename, source)
 }
 
 fn create_lazy_builder(dest_dir: &Path, name: &str, extension: &str, append: bool) -> LazyCreateBuilder {
@@ -212,7 +212,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
         .iter()
         .map(|package| load_package(source_dir, &package));
 
-    for (package, filename) in packages {
+    for (package, filename, package_source) in packages {
         use debcrafter::im_repr::PackageOps;
         let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); &mut **deps});
         let includes = package
@@ -222,9 +222,20 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
             .collect::<Result<_, PackageError>>().expect("invalid package");
 
         let instances = if source.variants.is_empty() || !package.name.is_templated() {
-            Either::Left(std::iter::once(package.instantiate(None, Some(&includes))))
+            let instance = package.instantiate(None, Some(&includes));
+            instance
+                .validate()
+                .unwrap_or_else(|error| error.report(filename.display().to_string(), package_source));
+            Either::Left(std::iter::once(instance))
         } else {
-            Either::Right(source.variants.iter().map(|variant| package.instantiate(Some(variant), Some(&includes))))
+            Either::Right(source.variants.iter()
+                          .map(|variant| {
+                              let instance = package.instantiate(Some(variant), Some(&includes));
+                              instance
+                                  .validate()
+                                  .unwrap_or_else(|error| error.report(filename.display().to_string(), &package_source));
+                              instance
+                          }))
         };
 
         services.extend(instances
@@ -278,7 +289,7 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
         .iter()
         .map(|package| load_package(source_dir, &package));
 
-    for (package, _filename) in packages {
+    for (package, filename, package_source) in packages {
         let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
         let includes = package
             .load_includes(source_dir, None)
@@ -287,10 +298,16 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
             .collect::<Result<_, PackageError>>().expect("invalid package");
 
         if source.variants.is_empty() || !package.name.is_templated() {
-            package.instantiate(None, Some(&includes));
+            let instance = package.instantiate(None, Some(&includes));
+            instance
+                .validate()
+                .unwrap_or_else(|error| error.report(filename.display().to_string(), package_source));
         } else {
             for variant in &source.variants {
-                package.instantiate(Some(&variant), Some(&includes));
+                let instance = package.instantiate(Some(&variant), Some(&includes));
+                instance
+                    .validate()
+                    .unwrap_or_else(|error| error.report(filename.display().to_string(), &package_source));
             }
         };
     }

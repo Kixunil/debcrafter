@@ -301,15 +301,15 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         write!(self.out, "RET=\"")?;
         for component in debcrafter::template::parse(template) {
             match component {
-                Component::Constant(val) => write!(self.out, "{}", val)?,
-                Component::Variable(var) if var.starts_with('/') => write!(self.out, "${{CONFIG[{}{}]}}", package, var)?,
-                Component::Variable(var) if var.contains('/') => {
+                Component::Constant(val, _) => write!(self.out, "{}", val)?,
+                Component::Variable(var, _) if var.starts_with('/') => write!(self.out, "${{CONFIG[{}{}]}}", package, var)?,
+                Component::Variable(var, _) if var.contains('/') => {
                     let pos = var.find('/').expect("unreachable");
                     let pkg_name = VPackageName::try_from(var[..pos].to_owned()).expect("invalid package name");
                     let var_name = &var[(pos + 1)..];
                     write!(self.out, "${{CONFIG[{}/{}]}}", pkg_name.expand_to_cow(constants.get_variant()), var_name)?;
                 },
-                Component::Variable(var) => write!(self.out, "{}", constants.get(var).unwrap_or_else(|| panic!("constant {} not found for variant", var)))?,
+                Component::Variable(var, _) => write!(self.out, "{}", constants.get(var).unwrap_or_else(|| panic!("constant {} not found for variant", var)))?,
             }
         }
         writeln!(self.out, "\"")?;

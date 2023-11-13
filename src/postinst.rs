@@ -1,6 +1,6 @@
 use crate::{Set, Map};
-use crate::types::{NonEmptyMap, VPackageName, VarName};
-use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess, InternalVarCondition};
+use crate::types::{NonEmptyMap, VarName};
+use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, PathVar, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess, InternalVarCondition};
 use std::fmt;
 use std::borrow::Cow;
 use either::Either;
@@ -214,40 +214,13 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                     match &var_spec.val {
                         HiddenVarVal::Constant(val) => handler.generate_const_var(&config_ctx, config_ctx.package_name, var, &var_spec.ty, val)?,
                         HiddenVarVal::Script(script) => handler.generate_var_using_script(&config_ctx, config_ctx.package_name, var, &var_spec.ty, &script.expand_to_cow(package.constants_by_variant()))?,
-                        HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, template, package.constants_by_variant())?,
+                        HiddenVarVal::Template(template) => handler.generate_var_using_template(&config_ctx, config_ctx.package_name, var, &var_spec.ty, &template.value, package.constants_by_variant())?,
                     }
                 }
 
                 let mut write_vars = Vec::new();
-                let mut check_ivars = Set::new();
 
                 for (var, var_spec) in ivars {
-                    match (&var_spec.ty, package.variant(), &var_spec.default) {
-                         (VarType::BindPort, Some(_), Some(default)) if default.components().vars().count() == 0 => {
-                            panic!("Error: bind port of variable {} in package {} is not templated! This will cause bind failures!", var, package.config_pkg_name())
-                        }
-                        (VarType::BindPort, Some(_), None) => {
-                            panic!("Error: bind port of variable {} in package {} is not templated! This will cause bind failures!", var, package.config_pkg_name())
-                         }
-                        _ => (),
-                    }
-
-                    for cond in &var_spec.conditions {
-                        if let InternalVarCondition::Var { name, .. } = cond {
-                            match name {
-                                VarName::Internal(var) => assert!(check_ivars.contains(&**var), "Unknown variable {:?}", name),
-                                VarName::Absolute(var_package, var) if var_package.expand_to_cow(package.variant()) == package.config_pkg_name() => assert!(check_ivars.contains(&**var), "Unknown variable {:?}", name),
-                                VarName::Absolute(var_package, var) => {
-                                    let pkg = evars.get(var_package)
-                                        .unwrap_or_else(|| panic!("Unknown variable {:?}", name));
-                                    assert!(pkg.get(&**var).is_some(), "Unknown variable {:?}", name);
-                                },
-                                VarName::Constant(_) => panic!("constants can't be used to skip ivars"),
-                            }
-                        }
-                    }
-                    check_ivars.insert(&**var);
-
                     if var_spec.store {
                         write_vars.push(WriteVar {
                             structure: compute_structure(&var, &var_spec.structure),
@@ -270,11 +243,11 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                                 .config()
                                 .iter()
                                 .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                                    ivars.get(var)
+                                    ivars.get(&**var)
                                 } else {
                                     None
                                 })
-                                .unwrap_or_else(|| panic!("Variable {} not found in {}", var, pkg_name.expand_to_cow(package.variant())))
+                                .expect("checked in validate()")
                                 .ty;
 
                             let out_var = var_spec.name.as_ref().unwrap_or(var);
@@ -292,49 +265,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                     }
                 }
 
-                let mut hvars_accum = Set::new();
                 for (var, var_spec) in hvars {
-                    if let HiddenVarVal::Template(template) = &var_spec.val {
-                        for var in crate::template::parse(template).vars() {
-                            if let Some(pos) = var.find('/') {
-                                let (pkg_name, var_name) = var.split_at(pos);
-                                let var_name = &var_name[1..];
-
-                                if pkg_name.is_empty() {
-                                    package
-                                        .config()
-                                        .iter()
-                                        .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                                            ivars.get(var_name)
-                                        } else {
-                                            None
-                                        })
-                                        .map(drop)
-                                        .or_else(|| hvars_accum.get(var_name).map(drop))
-                                        .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, package.config_pkg_name()));
-                                } else {
-                                    let v_pkg_name = VPackageName::try_from(String::from(pkg_name))
-                                        .unwrap_or_else(|error| panic!("Invalid package name in template {}: {}", template, error));
-                                    package
-                                        .config()
-                                        .iter()
-                                        .find_map(|(_, conf)| if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                                            evars.get(&v_pkg_name).and_then(|pkg| pkg.get(var_name))
-                                        } else {
-                                            None
-                                        })
-                                        .unwrap_or_else(|| panic!("Variable {} not found in {}", var_name, pkg_name));
-                                }
-                            } else {
-                                use crate::template::Query;
-
-                                if package.constants_by_variant().get(var).is_none() {
-                                    panic!("Unknown constant {}", var);
-                                }
-                            }
-                        }
-                    }
-
                     if var_spec.store {
                         write_vars.push(WriteVar {
                             structure: compute_structure(&var, &var_spec.structure),
@@ -347,7 +278,6 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                             conditions: &[],
                         });
                     }
-                    hvars_accum.insert(&**var);
                 }
 
                 for (var, var_spec) in fvars {
@@ -439,17 +369,17 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
 
                 let ivars_iter = ivars
                     .iter()
-                    .map(|(var, spec)| (var, &spec.ty));
+                    .map(|(var, spec)| (&***var, &spec.ty));
 
                 let hvars_iter = hvars
                     .iter()
-                    .map(|(var, spec)| (var, &spec.ty));
+                    .map(|(var, spec)| (&***var, &spec.ty));
 
                 // We must not include evars as they create the dir in their package.
 
                 for (var, ty) in ivars_iter.chain(hvars_iter) {
                     match ty {
-                        VarType::Path { file_type: Some(file_type), create: Some(create) } => {
+                        VarType::Path(PathVar::Create { file_type, options: create }) => {
                             let owner = create.owner.expand_to_cow(package.constants_by_variant());
                             let owner = if let Cow::Borrowed("$service") = owner {
                                 package.service_user().expect("Attempt to use service user but the package is not a service.")
@@ -466,7 +396,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
 
                             handler.create_path(&config_ctx, var, file_type, create.mode, &owner, &group, create.only_parent)?;
                         },
-                        VarType::Path { file_type: None, create: Some(_) } => panic!("Invalid specification: path can't be created without specifying type"),
+                        VarType::Path(PathVar::NoCreate(_)) => (),
                         _ => (),
                     }
                 }

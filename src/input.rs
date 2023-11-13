@@ -389,9 +389,9 @@ pub(crate) struct Config {
     pub(crate) format: ConfFormat,
     pub(crate) insert_header: TemplateString,
     pub(crate) with_header: bool,
-    pub(crate) ivars: OrderedHashMap<String, InternalVar>,
-    pub(crate) evars: Map<VPackageName, Map<String, ExternalVar>>,
-    pub(crate) hvars: OrderedHashMap<String, HiddenVar>,
+    pub(crate) ivars: OrderedHashMap<Spanned<String>, InternalVar>,
+    pub(crate) evars: Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>,
+    pub(crate) hvars: OrderedHashMap<Spanned<String>, HiddenVar>,
     pub(crate) fvars: Map<String, FileVar>,
     pub(crate) cat_dir: String,
     pub(crate) cat_files: Set<String>,
@@ -455,7 +455,7 @@ pub(crate) struct InternalVar {
     pub(crate) ty: Spanned<String>,
     pub(crate) summary: TemplateString,
     pub(crate) long_doc: TemplateString,
-    pub(crate) default: TemplateString,
+    pub(crate) default: Spanned<TemplateString>,
     pub(crate) try_overwrite_default: TemplateString,
     pub(crate) priority: DebconfPriority,
     pub(crate) store: bool,
@@ -463,7 +463,7 @@ pub(crate) struct InternalVar {
     pub(crate) structure: Vec<String>,
     pub(crate) conditions: Vec<InternalVarCondition>,
     pub(crate) file_type: FileType,
-    pub(crate) create: CreateFsObj,
+    pub(crate) create: Spanned<CreateFsObj>,
 }
 }
 
@@ -482,7 +482,7 @@ pub(crate) struct InternalVarConditionVar {
     pub(crate) unknown,
     pub(crate) span,
 
-    pub(crate) name: VarName<'static>,
+    pub(crate) name: Spanned<VarName<'static>>,
     pub(crate) value: TemplateString,
 }
 }
@@ -532,10 +532,10 @@ pub(crate) struct HiddenVar {
     pub(crate) store: bool,
     pub(crate) constant: String,
     pub(crate) script: TemplateString,
-    pub(crate) template: String,
+    pub(crate) template: Spanned<String>,
     pub(crate) structure: Vec<String>,
     pub(crate) file_type: FileType,
-    pub(crate) create: CreateFsObj,
+    pub(crate) create: Spanned<CreateFsObj>,
 }
 }
 

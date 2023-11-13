@@ -1,14 +1,14 @@
 use super::require_fields;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use super::{PackageError, TemplateString, DebconfPriority, FileType, check_unknown_fields};
-use crate::types::{VarName, NonEmptyVec};
+use crate::types::{VarName, NonEmptyVec, Spanned};
 
 pub struct InternalVar {
     pub ty: VarType,
     pub summary: TemplateString,
     pub long_doc: Option<TemplateString>,
-    pub default: Option<TemplateString>,
+    pub default: Option<Spanned<TemplateString>>,
     pub try_overwrite_default: Option<TemplateString>,
     pub priority: DebconfPriority,
     pub store: bool,
@@ -31,7 +31,13 @@ impl TryFrom<crate::input::InternalVar> for InternalVar {
             "bool" => VarType::Bool,
             "bind_host" => VarType::BindHost,
             "bind_port" => VarType::BindPort,
-            "path" => VarType::Path { file_type: value.file_type, create: value.create.map(TryFrom::try_from).transpose()? },
+            "path" => {
+                match (value.file_type, value.create) {
+                    (file_type, None) => VarType::Path(PathVar::NoCreate(file_type)),
+                    (Some(file_type), Some(options)) => VarType::Path(PathVar::Create { file_type, options: options.into_inner().try_into()? }),
+                    (None, Some(options)) => return Err(PackageError::CreatePathWithoutType(options.span().0..options.span().1)),
+                }
+            },
             _ => return Err(PackageError::UnknownVarType(ty)),
         };
 
@@ -45,7 +51,7 @@ impl TryFrom<crate::input::InternalVar> for InternalVar {
             ty,
             summary,
             long_doc: value.long_doc,
-            default: value.default,
+            default: value.default.map(Into::into),
             try_overwrite_default: value.try_overwrite_default,
             priority,
             store: value.store.unwrap_or(true),
@@ -63,11 +69,17 @@ pub enum VarType {
     Bool,
     BindHost,
     BindPort,
-    Path { file_type: Option<FileType>, create: Option<CreateFsObj>, },
+    Path(PathVar),
+}
+
+#[derive(Debug)]
+pub enum PathVar {
+    NoCreate(Option<FileType>),
+    Create { file_type: FileType, options: CreateFsObj },
 }
 
 pub enum InternalVarCondition {
-    Var { name: VarName<'static>, value: TemplateString, },
+    Var { name: Spanned<VarName<'static>>, value: TemplateString, },
     Command { run: NonEmptyVec<TemplateString>, user: TemplateString, group: TemplateString, invert: bool, },
 }
 
@@ -83,7 +95,7 @@ impl TryFrom<crate::input::InternalVarCondition> for InternalVarCondition {
 
                 require_fields!(var, name, value);
                 Ok(InternalVarCondition::Var {
-                    name,
+                    name: name.into(),
                     value,
                 })
             },
@@ -147,14 +159,22 @@ impl TryFrom<crate::input::HiddenVar> for HiddenVar {
             "bool" => VarType::Bool,
             "bind_host" => VarType::BindHost,
             "bind_port" => VarType::BindPort,
-            "path" => VarType::Path { file_type: value.file_type, create: value.create.map(TryFrom::try_from).transpose()? },
+            "path" => {
+                match (value.file_type, value.create) {
+                    (file_type, None) => VarType::Path(PathVar::NoCreate(file_type)),
+                    (Some(file_type), Some(options)) => VarType::Path(PathVar::Create { file_type, options: options.into_inner().try_into()? }),
+                    (None, Some(options)) => return Err(PackageError::CreatePathWithoutType(options.span().0..options.span().1)),
+                }
+            },
             _ => return Err(PackageError::UnknownVarType(ty)),
         };
 
         let val = match (value.constant, value.script, value.template) {
             (Some(constant), None, None) => HiddenVarVal::Constant(constant),
             (None, Some(script), None) => HiddenVarVal::Script(script),
-            (None, None, Some(template)) => HiddenVarVal::Template(template),
+            (None, None, Some(template)) => {
+                HiddenVarVal::Template(template.into())
+            },
             (None, None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["constant"], &["script"], &["template"]])),
             _ => return Err(PackageError::Ambiguous(value.span, "value of hidden variable")),
         };
@@ -172,7 +192,7 @@ impl TryFrom<crate::input::HiddenVar> for HiddenVar {
 pub enum HiddenVarVal {
     Constant(String),
     Script(TemplateString),
-    Template(String),
+    Template(Spanned<String>),
 }
 
 #[derive(Clone, Debug)]

@@ -5,8 +5,8 @@ use std::convert::TryFrom;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Component<'a> {
-    Constant(&'a str),
-    Variable(&'a str),
+    Constant(&'a str, usize),
+    Variable(&'a str, usize),
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -19,14 +19,15 @@ enum State {
 #[derive(Debug)]
 pub struct Parser<'a> {
     state: State,
-    remaining: Option<&'a str>
+    remaining: Option<&'a str>,
+    pos: usize,
 }
 
 impl<'a> Parser<'a> {
-    pub fn vars(self) -> impl 'a + Iterator<Item=&'a str> {
+    pub fn vars(self) -> impl 'a + Iterator<Item=(&'a str, usize)> {
         self.filter_map(|component| match component {
-            Component::Variable(var) => Some(var),
-            Component::Constant(_) => None,
+            Component::Variable(var, pos) => Some((var, pos)),
+            Component::Constant(_, _) => None,
         })
     }
 }
@@ -47,16 +48,19 @@ impl<'a> Iterator for Parser<'a> {
             (State::Init, None) => {
                 let res = &**remaining_str;
                 self.remaining = None;
-                Some(Component::Constant(res))
+                Some(Component::Constant(res, self.pos))
             },
             (State::Init, Some((pos, '}', Some('}')))) | (State::Init, Some((pos, '{', Some('{')))) => {
                 let res = &remaining_str[..pos];
                 self.state = State::Escaped;
                 self.remaining = Some(&remaining_str[(pos + 1)..]);
                 if res.is_empty() {
+                    self.pos += 1;
                     self.next()
                 } else {
-                    Some(Component::Constant(res))
+                    let res = Some(Component::Constant(res, self.pos));
+                    self.pos += pos;
+                    res
                 }
             },
             (State::Init, Some((_, '}', _))) => {
@@ -68,6 +72,7 @@ impl<'a> Iterator for Parser<'a> {
             (State::Init, Some((mut pos @ 0, '{', _))) | (State::Variable, Some((mut pos, '}', _))) => {
                 if self.state == State::Init {
                     *remaining_str = &remaining_str[1..];
+                    self.pos += 1;
                     pos = remaining_str.find(&['{', '}'] as &[char]).expect("Invalid template: missing closing brace");
                     let mut chars = remaining_str[pos..].chars();
                     if chars.next() == Some('{') || chars.next() == Some('}') {
@@ -81,13 +86,17 @@ impl<'a> Iterator for Parser<'a> {
                     true => None,
                     false => Some(remaining),
                 };
-                Some(Component::Variable(res))
+                let res = Some(Component::Variable(res, self.pos));
+                self.pos += pos + 1;
+                res
             },
             (State::Init, Some((pos, '{', _))) => {
                 let res = &remaining_str[..pos];
                 self.state = State::Variable;
                 self.remaining = Some(&remaining_str[(pos + 1)..]);
-                Some(Component::Constant(res))
+                let res = Some(Component::Constant(res, self.pos));
+                self.pos += pos + 1;
+                res
             },
             (State::Init, Some((_, _, _))) => {
                 panic!("Invalid parser state");
@@ -122,7 +131,10 @@ impl<'a> Iterator for Parser<'a> {
                     },
                 }
                 self.state = State::Init;
-                Some(Component::Constant(res))
+                let pos = res.len();
+                let res = Some(Component::Constant(res, self.pos));
+                self.pos += pos;
+                res
             },
             (State::Escaped, _) => {
                 dbg!(self);
@@ -136,6 +148,7 @@ pub fn parse<'a>(template: &'a str) -> Parser<'a> {
     Parser {
         state: State::Init,
         remaining: Some(template),
+        pos: 0,
     }
 }
 
@@ -170,8 +183,8 @@ impl<'a, V> fmt::Display for ExpandTemplate<'a, V> where V: Query {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for component in parse(self.template) {
             match component {
-                Component::Constant(val) => write!(f, "{}", val)?,
-                Component::Variable(var) => write!(f, "{}", self.vars.get(var).ok_or(var).expect("Missing variable"))?,
+                Component::Constant(val, _) => write!(f, "{}", val)?,
+                Component::Variable(var, _) => write!(f, "{}", self.vars.get(var).ok_or(var).expect("Missing variable"))?,
             }
         }
         Ok(())
@@ -180,7 +193,7 @@ impl<'a, V> fmt::Display for ExpandTemplate<'a, V> where V: Query {
 
 pub fn expand_to_cow<'a, V: Query>(template: &'a str, vars: V) -> Cow<'a, str> {
     match parse(template).next().expect("empty parser") {
-        Component::Constant(val) if val == template => Cow::Borrowed(template),
+        Component::Constant(val, _) if val == template => Cow::Borrowed(template),
         _ => Cow::Owned(ExpandTemplate { template, vars, }.to_string()),
     }
 }

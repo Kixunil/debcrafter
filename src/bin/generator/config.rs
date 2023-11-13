@@ -50,7 +50,7 @@ declare -A CONFIG
                                 InternalVarCondition::Var { name, value: _, } => {
                                     // TODO: we could actually allow this to show certain options
                                     // only for specific variants but the logic is quite different.
-                                    let needs_db_go = match name {
+                                    let needs_db_go = match &**name {
                                         VarName::Internal(_) => true,
                                         VarName::Absolute(package, _) => package.expand_to_cow(instance.variant()) == instance.name,
                                         VarName::Constant(_) => panic!("constants unsupported"),
