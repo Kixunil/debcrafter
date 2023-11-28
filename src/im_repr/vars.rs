@@ -2,7 +2,7 @@ use super::require_fields;
 
 use std::convert::{TryFrom, TryInto};
 use super::{PackageError, TemplateString, DebconfPriority, FileType, check_unknown_fields};
-use crate::types::{VarName, NonEmptyVec, Spanned};
+use crate::types::{DynVarName, VarName, NonEmptyVec, Spanned};
 
 pub struct InternalVar {
     pub ty: VarType,
@@ -79,7 +79,7 @@ pub enum PathVar {
 }
 
 pub enum InternalVarCondition {
-    Var { name: Spanned<VarName<'static>>, value: TemplateString, },
+    Var { name: Spanned<DynVarName<'static>>, value: TemplateString, },
     Command { run: NonEmptyVec<TemplateString>, user: TemplateString, group: TemplateString, invert: bool, },
 }
 
@@ -94,8 +94,16 @@ impl TryFrom<crate::input::InternalVarCondition> for InternalVarCondition {
                 check_unknown_fields(var.unknown)?;
 
                 require_fields!(var, name, value);
+                let span = name.span();
+                let name = match name.into_inner() {
+                    VarName::Internal(var) => DynVarName::Internal(var),
+                    VarName::Absolute(pkg, var) => DynVarName::Absolute(pkg, var),
+                    VarName::Constant(_) => {
+                        return Err(PackageError::ConstCond(span.0..span.1));
+                    },
+                };
                 Ok(InternalVarCondition::Var {
-                    name: name.into(),
+                    name: Spanned { value: name, span_start: span.0, span_end: span.1 },
                     value,
                 })
             },

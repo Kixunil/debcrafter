@@ -1,11 +1,10 @@
 use crate::{Set, Map};
-use crate::types::{NonEmptyMap, VarName};
+use crate::types::NonEmptyMap;
 use crate::im_repr::{PackageOps, PackageInstance, PackageConfig, ServiceInstance, ConstantsByVariant, ConfType, VarType, PathVar, ConfFormat, FileType, HiddenVarVal, FileVar, GeneratedType, ExtraGroup, Database, MigrationVersion, Migration, Alternative, PostProcess, InternalVarCondition};
 use std::fmt;
 use std::borrow::Cow;
 use either::Either;
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use crate::template::TemplateString;
 
 #[derive(Clone)]

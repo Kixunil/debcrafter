@@ -161,7 +161,7 @@ pub(crate) fn write_ivar_conditions<'a, W: fmt::Write, P: PackageOps<'a>>(mut ou
         }
         match cond {
             InternalVarCondition::Var { name, value, } => {
-                write!(&mut out, "[ \"${{CONFIG[{}]}}\" = {} ]", name.expand(instance.config_pkg_name(), instance.variant()).unwrap(), DisplayEscaped(value.expand(instance.constants_by_variant())))?;
+                write!(&mut out, "[ \"${{CONFIG[{}]}}\" = {} ]", name.expand(instance.config_pkg_name(), instance.variant()), DisplayEscaped(value.expand(instance.constants_by_variant())))?;
             },
             InternalVarCondition::Command { run, user, group, invert, } => {
                 let user = user.expand_to_cow(instance.constants_by_variant());

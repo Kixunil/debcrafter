@@ -3,7 +3,7 @@ use debcrafter::im_repr::{PackageOps, PackageInstance, PackageConfig, ConfType, 
 use crate::codegen::{LazyCreateBuilder};
 use std::borrow::Cow;
 use crate::codegen::bash::write_ivar_conditions;
-use debcrafter::types::VarName;
+use debcrafter::types::DynVarName;
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let header = "#!/bin/bash
@@ -51,17 +51,15 @@ declare -A CONFIG
                                     // TODO: we could actually allow this to show certain options
                                     // only for specific variants but the logic is quite different.
                                     let needs_db_go = match &**name {
-                                        VarName::Internal(_) => true,
-                                        VarName::Absolute(package, _) => package.expand_to_cow(instance.variant()) == instance.name,
-                                        VarName::Constant(_) => panic!("constants unsupported"),
+                                        DynVarName::Internal(_) => true,
+                                        DynVarName::Absolute(package, _) => package.expand_to_cow(instance.variant()) == instance.name,
                                     };
                                     if needs_db_go && !has_our_var {
                                         writeln!(out, "db_go")?;
                                         has_our_var = true;
                                     }
                                     let name = name
-                                        .expand(&instance.name, instance.variant())
-                                        .expect("constants can't be used to skip ivars");
+                                        .expand(&instance.name, instance.variant());
                                     writeln!(out, "db_get {}", name)?;
                                     writeln!(out, "CONFIG[\"{}\"]=\"$RET\"", name)?;
                                 },

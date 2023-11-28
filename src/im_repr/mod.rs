@@ -19,7 +19,7 @@ pub use vars::{VarType, PathVar, InternalVar, ExternalVar, HiddenVar, HiddenVarV
 pub use crate::input::{FileDeps, Database, Architecture, BoolOrVecTemplateString, DebconfPriority, DirRepr, FileVar, FileType, ConfFormat};
 
 use super::{Map, Set};
-use crate::types::VarName;
+use crate::types::DynVarName;
 
 macro_rules! require_fields {
     ($struct:expr, $($field:ident),+ $(,)?) => {
@@ -249,7 +249,7 @@ impl<'a> PackageInstance<'a> {
             for cond in &var_spec.conditions {
                 if let InternalVarCondition::Var { name, .. } = cond {
                     match &**name {
-                        VarName::Internal(var) => if !check_ivars.contains(&**var) {
+                        DynVarName::Internal(var) => if !check_ivars.contains(&**var) {
                             let var = Spanned {
                                 value: var.to_owned().into(),
                                 span_start: name.span_start + 1,
@@ -257,7 +257,7 @@ impl<'a> PackageInstance<'a> {
                             };
                             missing.push_internal(var);
                         },
-                        VarName::Absolute(var_package, var) if var_package.expand_to_cow(self.variant()) == self.config_pkg_name() => if !check_ivars.contains(&**var) {
+                        DynVarName::Absolute(var_package, var) if var_package.expand_to_cow(self.variant()) == self.config_pkg_name() => if !check_ivars.contains(&**var) {
                             let var = Spanned {
                                 value: var.to_owned().into(),
                                 span_start: name.span_start + 1,
@@ -265,7 +265,7 @@ impl<'a> PackageInstance<'a> {
                             };
                             missing.push_internal(var);
                         },
-                        VarName::Absolute(var_package, var) => {
+                        DynVarName::Absolute(var_package, var) => {
                             let found = evars.get(var_package)
                                 .and_then(|pkg| pkg.get(&**var));
                             if found.is_none() {
@@ -276,9 +276,6 @@ impl<'a> PackageInstance<'a> {
                                 };
                                 missing.push_external(error);
                             }
-                        },
-                        VarName::Constant(_) => {
-                            errors.push(PackageError::ConstCond(name.span_range()));
                         },
                     }
                 }

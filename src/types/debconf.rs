@@ -64,6 +64,20 @@ impl<'a> TryFrom<&'a str> for VarName<'a> {
     }
 }
 
+pub enum DynVarName<'a> {
+    Internal(Cow<'a, str>),
+    Absolute(VPackageName, Cow<'a, str>),
+}
+
+impl<'a> DynVarName<'a> {
+    pub fn expand<'b>(&'b self, this_package: &'b str, variant: Option<&'b super::Variant>) -> DisplayVar<'b> {
+        match self {
+            DynVarName::Internal(variable) => DisplayVar { package: Cow::Borrowed(this_package), variable, },
+            DynVarName::Absolute(package, variable) => DisplayVar { package: package.expand_to_cow(variant), variable, },
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub struct Error(VPackageNameError);
