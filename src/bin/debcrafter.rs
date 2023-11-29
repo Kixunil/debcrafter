@@ -10,7 +10,6 @@ use debcrafter::error_report::Report;
 use serde_derive::Deserialize;
 use std::borrow::Borrow;
 use either::Either;
-use std::convert::TryFrom;
 
 mod generator;
 mod codegen;
@@ -188,8 +187,6 @@ fn get_upstream_version(version: &str) -> &str {
 }
 
 fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str, mut dep_file: Option<&mut fs::File>) {
-    use debcrafter::im_repr::PackageError;
-
     let mut changelog_path = source_dir.join(name);
     changelog_path.set_extension("changelog");
     let version = changelog_parse_version(&changelog_path);
@@ -215,11 +212,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
     for (package, filename, package_source) in packages {
         use debcrafter::im_repr::PackageOps;
         let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); &mut **deps});
-        let includes = package
-            .load_includes(source_dir, deps_opt)
-            .into_iter()
-            .map(|(name, package)| Ok((name.clone(), debcrafter::im_repr::Package::try_from(package).unwrap_or_else(|error| panic!("invalid package {:?}: {:?}", name, error)))))
-            .collect::<Result<_, PackageError>>().expect("invalid package");
+        let includes = package.load_includes(source_dir, deps_opt);
 
         let instances = if source.variants.is_empty() || !package.name.is_templated() {
             let instance = package.instantiate(None, Some(&includes));
@@ -278,8 +271,6 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 }
 
 fn check(source_dir: &Path, name: &str, source: &mut Source) {
-    use debcrafter::im_repr::PackageError;
-
     let mut changelog_path = source_dir.join(name);
     changelog_path.set_extension("changelog");
     let version = changelog_parse_version(&changelog_path);
@@ -290,12 +281,7 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
         .map(|package| load_package(source_dir, &package));
 
     for (package, filename, package_source) in packages {
-        let package = debcrafter::im_repr::Package::try_from(package).expect("invalid package");
-        let includes = package
-            .load_includes(source_dir, None)
-            .into_iter()
-            .map(|(name, package)| Ok((name, debcrafter::im_repr::Package::try_from(package).expect("invalid package"))))
-            .collect::<Result<_, PackageError>>().expect("invalid package");
+        let includes = package.load_includes(source_dir, None);
 
         if source.variants.is_empty() || !package.name.is_templated() {
             let instance = package.instantiate(None, Some(&includes));
