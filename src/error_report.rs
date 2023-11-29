@@ -62,7 +62,7 @@ impl IntoDiagnostic for crate::im_repr::PackageError {
                 } else {
                     "missing fields"
                 };
-                let mut label = format!("Either ");
+                let mut label = "Either ".to_owned();
                 let mut is_first_group = true;
                 for group in fields {
                     if !is_first_group {

@@ -10,18 +10,18 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
     const DELIMITER: &str = " | ";
     const NO_THANKS: &str = "dbconfig-no-thanks";
 
-    let db_deps = if instance.databases().len() > 0 {
+    let db_deps = if !instance.databases().is_empty() {
         let mut databases = String::new();
         let sum = instance.databases().iter().map(|(db, _)| db.dbconfig_dependency().len()).sum::<usize>();
         let mut dbconfig = String::with_capacity(sum + instance.databases().len() * (PREFIX.len() + DELIMITER.len()) + NO_THANKS.len());
-        for (db, _) in instance.databases() {
+        for db in instance.databases().keys() {
             dbconfig.push_str(PREFIX);
             dbconfig.push_str(db.dbconfig_dependency());
             dbconfig.push_str(DELIMITER);
 
             let db_dep = db.dependency();
 
-            if databases.len() > 0 {
+            if !databases.is_empty() {
                 databases.push_str(DELIMITER);
             }
             databases.push_str(db_dep);

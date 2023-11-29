@@ -25,7 +25,7 @@ fn write_alternatives<W: io::Write>(mut out: W, instance: &PackageInstance) -> i
 }
 
 fn write_patches<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
-    for (dest, _) in instance.patch_foreign {
+    for dest in instance.patch_foreign.keys() {
         writeln!(out, "if [ `dpkg-divert --list \"{}\" | wc -l` -gt 0 ];", dest)?;
         writeln!(out, "then")?;
         writeln!(out, "\trm -f \"{}\"", dest)?;

@@ -24,7 +24,7 @@ impl ConfParam {
 
     pub fn param(&self) -> &str {
         match self {
-            ConfParam::WithSpace(param) | ConfParam::WithoutSpace(param) => &param,
+            ConfParam::WithSpace(param) | ConfParam::WithoutSpace(param) => param,
             ConfParam::Bare => "",
         }
     }
@@ -75,16 +75,16 @@ pub struct ServiceInstance<'a> {
 
 impl<'a> ServiceInstance<'a> {
     pub fn user_name(&self) -> Cow<'a, str> {
-        self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref()))
+        self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(self.name.as_ref()))
     }
 
     pub fn service_name(&self) -> &'a str {
-        &**self.name
+        self.name
     }
 
     pub fn service_group(&self) -> Option<Cow<'a, str>> {
         if self.spec.user.group {
-            Some(self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(&self.name.as_ref())))
+            Some(self.spec.user.name.as_ref().map(|user_name| user_name.expand_to_cow(self.constants_by_variant())).unwrap_or(Cow::Borrowed(self.name.as_ref())))
         } else {
             None
         }
@@ -93,7 +93,7 @@ impl<'a> ServiceInstance<'a> {
 
 impl<'a> PackageOps<'a> for ServiceInstance<'a> {
     fn config_pkg_name(&self) -> &str {
-        &self.name
+        self.name
     }
 
     fn variant(&self) -> Option<&Variant> {
@@ -148,7 +148,7 @@ impl<'a> PackageOps<'a> for ServiceInstance<'a> {
     }
 
     fn databases(&self) -> &Map<Database, DbConfig> {
-        &self.databases
+        self.databases
     }
 }
 

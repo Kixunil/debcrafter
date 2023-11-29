@@ -37,7 +37,7 @@ declare -A CONFIG
     }
 
     //TODO: data validation
-    for (_, config) in instance.config() {
+    for config in instance.config().values() {
         match &config.conf_type {
             ConfType::Static { .. } => (),
             ConfType::Dynamic { ivars, .. } => {
@@ -92,7 +92,7 @@ declare -A CONFIG
                         DebconfPriority::Medium => "PRIORITY=medium",
                         DebconfPriority::High => "PRIORITY=high",
                         DebconfPriority::Critical => "PRIORITY=critical",
-                        DebconfPriority::Dynamic { script } => &script,
+                        DebconfPriority::Dynamic { script } => script,
                     };
 
                     writeln!(out, "{}\ndb_input $PRIORITY {}/{}", priority, instance.name, var_name)?;

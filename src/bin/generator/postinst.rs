@@ -48,7 +48,7 @@ fn new_sdu_handler(out: LazyCreateBuilder) -> SduHandler<impl WriteHeader> {
         .finalize();
 
     SduHandler {
-        out: out,
+        out,
         var_written: false,
         var_depth: 0,
     }

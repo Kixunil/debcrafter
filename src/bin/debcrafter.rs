@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use std::{io, fs};
 use std::convert::TryInto;
 use std::io::Write;
@@ -140,7 +142,7 @@ fn gen_control(deb_dir: &Path, name: &str, source: &Source, maintainer: &str, ne
 fn copy_changelog(deb_dir: &Path, source: &Path) {
     let dest = deb_dir.join("changelog");
 
-    match fs::copy(&source, &dest) {
+    match fs::copy(source, &dest) {
         Ok(_) => (),
         Err(ref err) if err.kind() == std::io::ErrorKind::NotFound => (),
         Err(err) => panic!("Failed to copy changelog of from {} to {}: {}", source.display(), dest.display(), err),
@@ -207,7 +209,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
 
     let packages = source.packages
         .iter()
-        .map(|package| load_package(source_dir, &package));
+        .map(|package| load_package(source_dir, package));
 
     for (package, filename, package_source) in packages {
         use debcrafter::im_repr::PackageOps;
@@ -245,7 +247,7 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
                 }
 
                 let out = create_lazy_builder(&deb_dir, "control", "", true);
-                generator::control::generate(&instance, out, &upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
+                generator::control::generate(&instance, out, upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
                 generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
 
                 instance.as_service().map(|service| ServiceRule {
@@ -278,7 +280,7 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
 
     let packages = source.packages
         .iter()
-        .map(|package| load_package(source_dir, &package));
+        .map(|package| load_package(source_dir, package));
 
     for (package, filename, package_source) in packages {
         let includes = package.load_includes(source_dir, None);
@@ -290,7 +292,7 @@ fn check(source_dir: &Path, name: &str, source: &mut Source) {
                 .unwrap_or_else(|error| error.report(filename.display().to_string(), package_source));
         } else {
             for variant in &source.variants {
-                let instance = package.instantiate(Some(&variant), Some(&includes));
+                let instance = package.instantiate(Some(variant), Some(&includes));
                 instance
                     .validate()
                     .unwrap_or_else(|error| error.report(filename.display().to_string(), &package_source));

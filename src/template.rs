@@ -117,7 +117,7 @@ impl<'a> Iterator for Parser<'a> {
                         let a = chars.next();
                         let b = chars.next();
                         let c = chars.next();
-                        if c == None && a == b {
+                        if c.is_none() && a == b {
                             res = &remaining_str[..(pos + 1)];
                             self.remaining = None;
                         } else {
@@ -144,7 +144,7 @@ impl<'a> Iterator for Parser<'a> {
     }
 }
 
-pub fn parse<'a>(template: &'a str) -> Parser<'a> {
+pub fn parse(template: &str) -> Parser<'_> {
     Parser {
         state: State::Init,
         remaining: Some(template),
@@ -191,7 +191,7 @@ impl<'a, V> fmt::Display for ExpandTemplate<'a, V> where V: Query {
     }
 }
 
-pub fn expand_to_cow<'a, V: Query>(template: &'a str, vars: V) -> Cow<'a, str> {
+pub fn expand_to_cow<V: Query>(template: &str, vars: V) -> Cow<'_, str> {
     match parse(template).next().expect("empty parser") {
         Component::Constant(val, _) if val == template => Cow::Borrowed(template),
         _ => Cow::Owned(ExpandTemplate { template, vars, }.to_string()),

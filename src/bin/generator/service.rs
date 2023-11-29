@@ -7,9 +7,9 @@ use debcrafter::template::TemplateString;
 
 fn filter_configs<'a>(configs: &'a Map<TemplateString, Config>, conf_dir: Option<&str>, constants_by_variant: ConstantsByVariant<'_>) -> Set<Cow<'a, str>> {
     let mut result = configs.iter().filter(|(_, config)| !config.external).map(|(k, _)| k.expand_to_cow(&constants_by_variant)).collect::<Set<_>>();
-    let non_zero = result.len() > 0;
+    let non_zero = !result.is_empty();
     let mut filter_dirs = conf_dir.into_iter().collect::<Set<_>>();
-    for (_, config) in configs {
+    for config in configs.values() {
         if let ConfType::Dynamic { cat_dir, cat_files, .. } = &config.conf_type {
             if let Some(dir) = cat_dir {
                 filter_dirs.insert(dir.trim_end_matches('/'));
@@ -22,7 +22,7 @@ fn filter_configs<'a>(configs: &'a Map<TemplateString, Config>, conf_dir: Option
     }
 
     let result = result.into_iter().filter(|item| item.rfind('/').map(|pos| !filter_dirs.contains(&item[..pos])).unwrap_or(true)).collect::<Set<_>>();
-    if result.len() == 0 && non_zero {
+    if result.is_empty() && non_zero {
         eprintln!("Warning: All config files elliminated. Circular dependencies?")
     }
     result
@@ -73,7 +73,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         };
 
         if let Some(param) = &instance.spec.conf_param {
-            for file in filter_configs(&instance.config, conf_dir_name, instance.constants_by_variant()) {
+            for file in filter_configs(instance.config, conf_dir_name, instance.constants_by_variant()) {
                 write!(out, " {}{}/etc/{}/{}", param.param(), param.separator(), instance.name, file)?;
             }
         }

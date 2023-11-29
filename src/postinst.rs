@@ -104,10 +104,7 @@ enum WriteVarType<'a> {
 
 impl<'a, I> PartialOrd for WriteVar<'a, I> where I: Iterator<Item=&'a str> + Clone {
     fn partial_cmp(&self, other: &WriteVar<'a, I>) -> Option<Ordering> {
-        let i0 = self.structure.clone();
-        let i1 = other.structure.clone();
-
-        Some(i0.cmp(i1))
+        Some(self.cmp(other))
     }
 }
 
@@ -181,7 +178,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
 
                 for (pkg_name, vars) in evars {
                     let pkg_name = pkg_name.expand_to_cow(package.variant());
-                    for (var, _var_spec) in vars {
+                    for var in vars.keys() {
                         handler.fetch_var(&config_ctx, &pkg_name, var)?;
                     }
                 }
@@ -222,7 +219,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 for (var, var_spec) in ivars {
                     if var_spec.store {
                         write_vars.push(WriteVar {
-                            structure: compute_structure(&var, &var_spec.structure),
+                            structure: compute_structure(var, &var_spec.structure),
                             ty: WriteVarType::Simple {
                                 ty: &var_spec.ty,
                                 package: Cow::Borrowed(config_ctx.package_name),
@@ -251,7 +248,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
 
                             let out_var = var_spec.name.as_ref().unwrap_or(var);
                             write_vars.push(WriteVar {
-                                structure: compute_structure(&out_var, &var_spec.structure),
+                                structure: compute_structure(out_var, &var_spec.structure),
                                 ty: WriteVarType::Simple {
                                     ty,
                                     package: pkg_name.expand_to_cow(package.variant()),
@@ -267,7 +264,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 for (var, var_spec) in hvars {
                     if var_spec.store {
                         write_vars.push(WriteVar {
-                            structure: compute_structure(&var, &var_spec.structure),
+                            structure: compute_structure(var, &var_spec.structure),
                             ty: WriteVarType::Simple {
                                 ty: &var_spec.ty,
                                 package: Cow::Borrowed(config_ctx.package_name),
@@ -283,7 +280,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                     match var_spec {
                         FileVar::Dir { structure, .. } => {
                             write_vars.push(WriteVar {
-                                structure: compute_structure(&var, structure),
+                                structure: compute_structure(var, structure),
                                 ty: WriteVarType::File {
                                     data: var_spec,
                                 },
@@ -301,7 +298,7 @@ fn handle_config<'a, T: HandlePostinst, P: PackageOps<'a>>(handler: &mut T, pack
                 previous = None;
                 for var in write_vars {
                     if !var.conditions.is_empty() {
-                        handler.condition_begin(package, &var.conditions)?;
+                        handler.condition_begin(package, var.conditions)?;
                     }
                     if let Some(previous) = previous {
                         let mut cur = var.structure.clone().peekable();
@@ -569,7 +566,7 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
     }
 
     if instance.migrations.values().any(|migration| migration.postinst_finish.is_some()) {
-        handler.finalize_migrations(&instance.migrations, instance.constants_by_variant())?;
+        handler.finalize_migrations(instance.migrations, instance.constants_by_variant())?;
     }
 
     handler.trigger_config_changed(instance)?;

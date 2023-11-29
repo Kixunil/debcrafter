@@ -13,11 +13,7 @@ pub struct VPackageName(String);
 
 impl VPackageName {
     fn _base(string: &str) -> &str {
-        if string.ends_with(PKG_NAME_VARIANT_SUFFIX) {
-            &string[..(string.len() - PKG_NAME_VARIANT_SUFFIX.len())]
-        } else {
-            &string
-        }
+        string.strip_suffix(PKG_NAME_VARIANT_SUFFIX).unwrap_or(string)
     }
 
     pub fn is_templated(&self) -> bool {

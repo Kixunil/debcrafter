@@ -178,9 +178,9 @@ impl LoadTomlError {
 
 pub fn load_toml<T: for<'a> serde::Deserialize<'a>, P: AsRef<Path> + Into<PathBuf>>(file: P) -> Result<T, LoadTomlError> {
     let file = file.as_ref();
-    let spec = std::fs::read(&file).map_err(LoadTomlError::with_path(file))?;
+    let spec = std::fs::read(file).map_err(LoadTomlError::with_path(file))?;
     toml::from_slice(&spec)
-        .map_err(|error| LoadTomlErrorSource::Parse(error))
+        .map_err(LoadTomlErrorSource::Parse)
         .map_err(LoadTomlError::with_path(file))
 }
 

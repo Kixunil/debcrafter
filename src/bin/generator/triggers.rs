@@ -25,13 +25,12 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         has_patches || instance
             .config()
             .values()
-            .find(|config| match &config.conf_type {
+            .any(|config| match &config.conf_type {
                 ConfType::Dynamic { postprocess: Some(_), .. } => true,
                 ConfType::Dynamic { cat_dir: Some(_), .. } => true,
-                ConfType::Dynamic { cat_files, .. } if cat_files.len() > 0 => true,
+                ConfType::Dynamic { cat_files, .. } if !cat_files.is_empty() => true,
                 _ => false,
-            })
-            .is_some() || !instance.extended_by.is_empty() || !instance.extra_triggers.is_empty()
+            }) || !instance.extended_by.is_empty() || !instance.extra_triggers.is_empty()
     };
 
     if needs_triggers {
@@ -47,7 +46,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                     files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file.expand(instance.constants_by_variant())));
                 },
                 ConfType::Dynamic { evars, cat_dir, cat_files, fvars, .. } =>  {
-                    for (package, _) in evars {
+                    for package in evars.keys() {
                         writeln!(out, "interest-noawait {}-config-changed", package.expand_to_cow(instance.variant()))?;
                     }
                     if let Some(cat_dir) = cat_dir {
@@ -56,7 +55,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
                     for file in cat_files {
                         files_await.insert(format!("/etc/{}/{}", instance.config_sub_dir(), file));
                     }
-                    for (_, var) in fvars {
+                    for var in fvars.values() {
                         match var {
                             FileVar::Dir { path, .. } => {
                                 dirs.insert(format!("/etc/{}/{}", instance.config_sub_dir(), path.trim_end_matches('/')));
@@ -67,7 +66,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
             }
         }
 
-        for (dest, _) in instance.patch_foreign {
+        for dest in instance.patch_foreign.keys() {
             files_no_await.insert(format!("{}.distrib", dest));
         }
 

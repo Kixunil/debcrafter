@@ -5,7 +5,7 @@ use crate::codegen::{LazyCreateBuilder};
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let mut out = out.finalize();
 
-    for (_, config) in instance.config() {
+    for config in instance.config().values() {
         if let ConfType::Dynamic { ivars, .. } = &config.conf_type {
             for (var, var_spec) in ivars {
                 out.separator("\n")?;

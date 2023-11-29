@@ -10,7 +10,7 @@ pub mod bash;
 pub fn paragraph<W: io::Write>(mut dest: W, text: &str) -> io::Result<()> {
     let mut write_dot = false;
     for line in text.split('\n') {
-        if line.len() > 0 {
+        if !line.is_empty() {
             if write_dot {
                 writeln!(dest, " .")?;
                 write_dot = false;

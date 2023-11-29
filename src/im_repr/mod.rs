@@ -73,13 +73,13 @@ impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
 
 impl<'a> PackageConfig for PackageInstance<'a> {
     fn config(&self) -> &Map<TemplateString, Config> {
-        &self.config
+        self.config
     }
 }
 
 impl<'a> PackageConfig for ServiceInstance<'a> {
     fn config(&self) -> &Map<TemplateString, Config> {
-        &self.config
+        self.config
     }
 }
 
@@ -144,17 +144,17 @@ impl Package {
 
     pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
         let mut result = Map::new();
-        for (_, conf) in &self.config {
+        for conf in self.config.values() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                for (pkg, _) in evars {
-                    let deps = deps.as_mut().map(|deps| &mut **deps);
-                    result.entry(pkg.value.to_owned()).or_insert_with(load_include(dir.as_ref(), &pkg, deps));
+                for pkg in evars.keys() {
+                    let deps = deps.as_deref_mut();
+                    result.entry(pkg.value.to_owned()).or_insert_with(load_include(dir.as_ref(), pkg, deps));
                 }
             }
         }
 
         if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
-            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), &extends, deps));
+            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), extends, deps));
         }
 
         result
@@ -203,7 +203,7 @@ impl MissingVars {
 
     fn into_errors(self, errors: &mut Vec<PackageError>) {
         errors.extend(self.internal.into_iter().map(|error| PackageError::IVarNotFound(error.0, error.1)));
-        errors.extend(self.external.into_iter().map(|error| PackageError::EVarNotFound(error)));
+        errors.extend(self.external.into_iter().map(PackageError::EVarNotFound));
         errors.extend(self.any.into_iter().map(|error| PackageError::VarNotFound(error.0, error.1)));
     }
 }
@@ -216,7 +216,7 @@ impl<'a> PackageInstance<'a> {
     fn validate_config(&self) -> Result<(), Vec<PackageError>> {
         let mut errors = Vec::new();
         let mut missing = Default::default();
-        for (_conf_name, config) in self.config() {
+        for config in self.config().values() {
             if let ConfType::Dynamic { ivars, evars, hvars, .. } = &config.conf_type {
                 self.validate_ivars(ivars, evars, &mut missing).unwrap_or_else(|error| errors.extend(error));
                 self.validate_evars(evars).unwrap_or_else(|error| errors.extend(error));
@@ -251,7 +251,7 @@ impl<'a> PackageInstance<'a> {
                     match &**name {
                         DynVarName::Internal(var) => if !check_ivars.contains(&**var) {
                             let var = Spanned {
-                                value: var.to_owned().into(),
+                                value: var.clone().into(),
                                 span_start: name.span_start + 1,
                                 span_end: name.span_end - 1,
                             };
@@ -259,7 +259,7 @@ impl<'a> PackageInstance<'a> {
                         },
                         DynVarName::Absolute(var_package, var) if var_package.expand_to_cow(self.variant()) == self.config_pkg_name() => if !check_ivars.contains(&**var) {
                             let var = Spanned {
-                                value: var.to_owned().into(),
+                                value: var.clone().into(),
                                 span_start: name.span_start + 1,
                                 span_end: name.span_end - 1,
                             };
@@ -281,7 +281,7 @@ impl<'a> PackageInstance<'a> {
                 }
             }
             check_ivars.insert(&***var);
-            missing.check_internal(&var);
+            missing.check_internal(var);
         }
 
         if errors.is_empty() {
@@ -303,7 +303,7 @@ impl<'a> PackageInstance<'a> {
                 },
             };
 
-            for (var, _var_spec) in vars {
+            for var in vars.keys() {
                 let found = &pkg
                     .config()
                     .iter()
@@ -406,7 +406,7 @@ impl<'a> PackageInstance<'a> {
                 }
             }
             hvars_accum.insert(&***var);
-            missing.check_any(&var);
+            missing.check_any(var);
         }
         if errors.is_empty() {
             Ok(())
@@ -643,13 +643,13 @@ pub struct PackageInstance<'a> {
 }
 
 impl<'a> PackageInstance<'a> {
-    pub fn as_service<'b>(&'b self) -> Option<ServiceInstance<'b>> {
+    pub fn as_service(&self) -> Option<ServiceInstance<'_>> {
         if let PackageSpec::Service(service) = &self.spec {
             Some(ServiceInstance {
                 name: &self.name,
                 variant: self.variant,
-                map_variants: &self.map_variants,
-                summary: &self.summary,
+                map_variants: self.map_variants,
+                summary: self.summary,
                 spec: service,
                 config: self.config,
                 databases: self.databases,
@@ -791,11 +791,7 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
     }
 
     fn is_conf_ext(&self) -> bool {
-        if let PackageSpec::ConfExt(_) = &self.spec {
-            true
-        } else {
-            false
-        }
+        matches!(&self.spec, PackageSpec::ConfExt(_))
     }
 
     fn conf_dir(&self) -> Option<&str> {
@@ -803,7 +799,7 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
     }
 
     fn databases(&self) -> &Map<Database, DbConfig> {
-        &self.databases
+        self.databases
     }
 }
 
