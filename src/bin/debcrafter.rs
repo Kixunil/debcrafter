@@ -188,22 +188,51 @@ fn get_upstream_version(version: &str) -> &str {
     version.rfind('-').map(|pos| &version[..pos]).unwrap_or(version)
 }
 
-fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, maintainer: &str, mut dep_file: Option<&mut fs::File>) {
+#[derive(Copy, Clone)]
+enum PrintItem {
+    Deps,
+}
+
+struct GlobalOptions<'a> {
+    dep_file: Option<&'a mut fs::File>,
+    print: Option<PrintItem>,
+}
+
+enum Command<'a> {
+    Check,
+    Generate { dest: &'a Path, maintainer: &'a str },
+}
+
+fn process_source(source_dir: &Path, name: &str, source: &mut Source, command: &Command<'_>, opts: &mut GlobalOptions<'_>) {
     let mut changelog_path = source_dir.join(name);
     changelog_path.set_extension("changelog");
     let version = changelog_parse_version(&changelog_path);
     let upstream_version = get_upstream_version(&version);
-    let dir = dest.join(format!("{}-{}", name, upstream_version));
-    let deb_dir = dir.join("debian");
-    fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
-    copy_changelog(&deb_dir, &changelog_path);
+    let generate = match command {
+        Command::Generate { dest, maintainer, } => {
+            let dir = dest.join(format!("{}-{}", name, upstream_version));
+            let deb_dir = dir.join("debian");
+            fs::create_dir_all(&deb_dir).expect("Failed to create debian directory");
+            copy_changelog(&deb_dir, &changelog_path);
+            Some((deb_dir, dir, maintainer))
+        },
+        Command::Check => None,
+    };
 
     let mut deps = Set::new();
-    let mut deps_opt = dep_file.as_mut().map(|_| { &mut deps });
+    let mut deps_opt = match opts {
+        GlobalOptions { dep_file: Some(_), print: _ } | GlobalOptions { dep_file: _, print: Some(PrintItem::Deps) } => {
+            deps.insert(changelog_path.clone());
+            Some(&mut deps)
+        },
+        GlobalOptions { dep_file: None, print: None } => None,
+    };
 
     // TODO: calculate debhelper dep instead
-    gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
-    std::fs::write(deb_dir.join("compat"), "12\n").expect("Failed to write debian/compat");
+    if let Some((deb_dir, _, maintainer)) = &generate {
+        gen_control(&deb_dir, name, source, maintainer, true).expect("Failed to generate control");
+        std::fs::write(deb_dir.join("compat"), "12\n").expect("Failed to write debian/compat");
+    }
 
     let mut services = Vec::new();
 
@@ -233,32 +262,34 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
                           }))
         };
 
-        services.extend(instances
-            .into_iter()
-            .filter_map(|instance| {
-                for &(extension, generator) in FILE_GENERATORS {
-                    let out = create_lazy_builder(&deb_dir, &instance.name, extension, false);
-                    generator(&instance, out).expect("Failed to generate file");
-                }
+        if let Some((deb_dir, dir, _)) = &generate {
+            services.extend(instances
+                .into_iter()
+                .filter_map(|instance| {
+                    for &(extension, generator) in FILE_GENERATORS {
+                        let out = create_lazy_builder(&deb_dir, &instance.name, extension, false);
+                        generator(&instance, out).expect("Failed to generate file");
+                    }
 
-                if let Some(service_name) = instance.service_name() {
-                    let out = create_lazy_builder(&deb_dir, &instance.name, &format!("{}.service", service_name), false);
-                    crate::generator::service::generate(&instance, out).expect("Failed to generate file");
-                }
+                    if let Some(service_name) = instance.service_name() {
+                        let out = create_lazy_builder(&deb_dir, &instance.name, &format!("{}.service", service_name), false);
+                        crate::generator::service::generate(&instance, out).expect("Failed to generate file");
+                    }
 
-                let out = create_lazy_builder(&deb_dir, "control", "", true);
-                generator::control::generate(&instance, out, upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
-                generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
+                    let out = create_lazy_builder(&deb_dir, "control", "", true);
+                    generator::control::generate(&instance, out, upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
+                    generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
 
-                instance.as_service().map(|service| ServiceRule {
-                    unit_name: ServiceInstance::service_name(&service).to_owned(),
-                    refuse_manual_start: service.spec.refuse_manual_start,
-                    refuse_manual_stop: service.spec.refuse_manual_stop,
-                })
-            }));
+                    instance.as_service().map(|service| ServiceRule {
+                        unit_name: ServiceInstance::service_name(&service).to_owned(),
+                        refuse_manual_start: service.spec.refuse_manual_start,
+                        refuse_manual_stop: service.spec.refuse_manual_stop,
+                    })
+                }));
+        }
     }
 
-    if let Some(dep_file) = dep_file {
+    if let (Some(dep_file), Command::Generate { dest, .. }) = (&mut opts.dep_file, command) {
         (|| -> Result<(), io::Error> {
             write!(dep_file, "{}/debcrafter-{}.stamp:", dest.display(), name)?;
             for dep in &deps {
@@ -269,35 +300,13 @@ fn gen_source(dest: &Path, source_dir: &Path, name: &str, source: &mut Source, m
         })().expect("Failed to write into dependency file")
     }
 
-    gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
-}
+    match opts.print {
+        Some(PrintItem::Deps) => for file in &deps { println!("{}", file.display()); },
+        None => (),
+    }
 
-fn check(source_dir: &Path, name: &str, source: &mut Source) {
-    let mut changelog_path = source_dir.join(name);
-    changelog_path.set_extension("changelog");
-    let version = changelog_parse_version(&changelog_path);
-    get_upstream_version(&version);
-
-    let packages = source.packages
-        .iter()
-        .map(|package| load_package(source_dir, package));
-
-    for (package, filename, package_source) in packages {
-        let includes = package.load_includes(source_dir, None);
-
-        if source.variants.is_empty() || !package.name.is_templated() {
-            let instance = package.instantiate(None, Some(&includes));
-            instance
-                .validate()
-                .unwrap_or_else(|error| error.report(filename.display().to_string(), package_source));
-        } else {
-            for variant in &source.variants {
-                let instance = package.instantiate(Some(variant), Some(&includes));
-                instance
-                    .validate()
-                    .unwrap_or_else(|error| error.report(filename.display().to_string(), &package_source));
-            }
-        };
+    if let Some((deb_dir, _, _)) = &generate {
+        gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
     }
 }
 
@@ -309,6 +318,7 @@ fn main() {
     let mut split_source = false;
     let mut write_deps = None;
     let mut check_only = false;
+    let mut print_source_files = false;
 
     while let Some(arg) = args.next() {
         if arg == "--split-source" {
@@ -323,32 +333,48 @@ fn main() {
         if arg == "--check" {
             check_only = true;
         }
-    }
 
-    if write_deps.is_some() && check_only {
-        panic!("Specifying --check and --write-deps at the same time doesn't make sense");
+        if arg == "--print-source-files" {
+            print_source_files = true;
+        }
     }
 
     let mut dep_file = write_deps.map(|dep_file| fs::File::create(dep_file).expect("failed to open dependency file"));
 
+    let mut opts = GlobalOptions {
+        dep_file: dep_file.as_mut(),
+        print: if print_source_files { Some(PrintItem::Deps) } else { None },
+    };
+
+    let maintainer;
     if split_source {
         let mut source = debcrafter::input::load_toml::<SingleSource, _>(&spec_file).expect("Failed to load source");
-        if check_only {
-            check(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source);
+        let command = if check_only {
+            Command::Check
         } else {
-            let maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
+            maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
 
-            gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &maintainer, dep_file.as_mut())
-        }
+            Command::Generate {
+                dest: &dest,
+                maintainer: &maintainer,
+            }
+        };
+
+        process_source(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &command, &mut opts)
     } else {
         let repo = debcrafter::input::load_toml::<Repository, _>(&spec_file).expect("Failed to load repository");
+
+        let command = if check_only {
+            Command::Check
+        } else {
+            Command::Generate {
+                dest: &dest,
+                maintainer: &repo.maintainer,
+            }
+        };
         
         for (name, mut source) in repo.sources {
-            if check_only {
-                check(spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source);
-            } else {
-                gen_source(&dest, spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &repo.maintainer, dep_file.as_mut())
-            }
+            process_source(spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &command, &mut opts)
         }
     }
 }
