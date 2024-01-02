@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use codegen::{LazyCreateBuilder};
-use debcrafter::{Map, Set};
+use debcrafter::Set;
 use debcrafter::im_repr::{Package, PackageInstance, ServiceInstance};
 use debcrafter::types::{VPackageName, Variant};
 use debcrafter::error_report::Report;
@@ -15,12 +15,6 @@ use either::Either;
 
 mod generator;
 mod codegen;
-
-#[derive(Deserialize)]
-pub struct Repository {
-    pub maintainer: String,
-    pub sources: Map<String, Source>,
-}
 
 #[derive(Deserialize)]
 pub struct Source {
@@ -315,14 +309,13 @@ fn main() {
     args.next().expect("Not even zeroth argument given");
     let spec_file = std::path::PathBuf::from(args.next().expect("Source not specified."));
     let dest = std::path::PathBuf::from(args.next().expect("Dest not specified."));
-    let mut split_source = false;
     let mut write_deps = None;
     let mut check_only = false;
     let mut print_source_files = false;
 
     while let Some(arg) = args.next() {
         if arg == "--split-source" {
-            split_source = true;
+            eprintln!("Warning: --split-source is now the only supported mode and you don't need to use the switch anymore");
         }
 
         if arg == "--write-deps" {
@@ -347,34 +340,17 @@ fn main() {
     };
 
     let maintainer;
-    if split_source {
-        let mut source = debcrafter::input::load_toml::<SingleSource, _>(&spec_file).expect("Failed to load source");
-        let command = if check_only {
-            Command::Check
-        } else {
-            maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
-
-            Command::Generate {
-                dest: &dest,
-                maintainer: &maintainer,
-            }
-        };
-
-        process_source(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &command, &mut opts)
+    let mut source = debcrafter::input::load_toml::<SingleSource, _>(&spec_file).expect("Failed to load source");
+    let command = if check_only {
+        Command::Check
     } else {
-        let repo = debcrafter::input::load_toml::<Repository, _>(&spec_file).expect("Failed to load repository");
+        maintainer = source.maintainer.or_else(|| std::env::var("DEBEMAIL").ok()).expect("missing maintainer");
 
-        let command = if check_only {
-            Command::Check
-        } else {
-            Command::Generate {
-                dest: &dest,
-                maintainer: &repo.maintainer,
-            }
-        };
-        
-        for (name, mut source) in repo.sources {
-            process_source(spec_file.parent().unwrap_or(".".as_ref()), &name, &mut source, &command, &mut opts)
+        Command::Generate {
+            dest: &dest,
+            maintainer: &maintainer,
         }
-    }
+    };
+
+    process_source(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &command, &mut opts)
 }
