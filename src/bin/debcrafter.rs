@@ -345,16 +345,17 @@ fn main() {
 
     match process_deps {
         None => (),
-        Some((deps, ProcessDeps::Print)) => print_deps(&deps),
+        Some((deps, ProcessDeps::Print)) => print_deps(&deps, &spec_file),
         Some((deps, ProcessDeps::Write(path))) => write_deps(&deps, &path, &source.name),
         Some((deps, ProcessDeps::PrintAndWrite(path))) => {
-            print_deps(&deps);
+            print_deps(&deps, &spec_file);
             write_deps(&deps, &path, &source.name);
         },
     }
 }
 
-fn print_deps(deps: &Set<PathBuf>) {
+fn print_deps(deps: &Set<PathBuf>, source: &PathBuf) {
+    println!("{}", source.to_str().unwrap_or_else(|| panic!("Printing file path {} is lossy", source.display())));
     for file in deps {
         // Well, we're on Unix, so we could just write the bytes which would be correct. But meh,
         // file a PR if this bothers you.
