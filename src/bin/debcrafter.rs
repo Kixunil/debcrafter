@@ -182,14 +182,8 @@ fn get_upstream_version(version: &str) -> &str {
     version.rfind('-').map(|pos| &version[..pos]).unwrap_or(version)
 }
 
-#[derive(Copy, Clone)]
-enum PrintItem {
-    Deps,
-}
-
 struct GlobalOptions<'a> {
-    dep_file: Option<&'a mut fs::File>,
-    print: Option<PrintItem>,
+    record_deps: Option<&'a mut Set<PathBuf>>,
 }
 
 enum Command<'a> {
@@ -213,14 +207,7 @@ fn process_source(source_dir: &Path, name: &str, source: &mut Source, command: &
         Command::Check => None,
     };
 
-    let mut deps = Set::new();
-    let mut deps_opt = match opts {
-        GlobalOptions { dep_file: Some(_), print: _ } | GlobalOptions { dep_file: _, print: Some(PrintItem::Deps) } => {
-            deps.insert(changelog_path.clone());
-            Some(&mut deps)
-        },
-        GlobalOptions { dep_file: None, print: None } => None,
-    };
+    let mut deps_opt = opts.record_deps.as_deref_mut();
 
     // TODO: calculate debhelper dep instead
     if let Some((deb_dir, _, maintainer)) = &generate {
@@ -236,8 +223,8 @@ fn process_source(source_dir: &Path, name: &str, source: &mut Source, command: &
 
     for (package, filename, package_source) in packages {
         use debcrafter::im_repr::PackageOps;
-        let deps_opt = deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); &mut **deps});
-        let includes = package.load_includes(source_dir, deps_opt);
+        deps_opt.as_mut().map(|deps| { deps.insert(filename.clone()); });
+        let includes = package.load_includes(source_dir, deps_opt.as_deref_mut());
 
         let instances = if source.variants.is_empty() || !package.name.is_templated() {
             let instance = package.instantiate(None, Some(&includes));
@@ -283,25 +270,15 @@ fn process_source(source_dir: &Path, name: &str, source: &mut Source, command: &
         }
     }
 
-    if let (Some(dep_file), Command::Generate { dest, .. }) = (&mut opts.dep_file, command) {
-        (|| -> Result<(), io::Error> {
-            write!(dep_file, "{}/debcrafter-{}.stamp:", dest.display(), name)?;
-            for dep in &deps {
-                write!(dep_file, " {}", dep.display())?;
-            }
-            writeln!(dep_file, "\n")?;
-            Ok(())
-        })().expect("Failed to write into dependency file")
-    }
-
-    match opts.print {
-        Some(PrintItem::Deps) => for file in &deps { println!("{}", file.display()); },
-        None => (),
-    }
-
     if let Some((deb_dir, _, _)) = &generate {
         gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
     }
+}
+
+enum ProcessDeps {
+    Print,
+    Write(PathBuf),
+    PrintAndWrite(PathBuf),
 }
 
 fn main() {
@@ -309,7 +286,7 @@ fn main() {
     args.next().expect("Not even zeroth argument given");
     let spec_file = std::path::PathBuf::from(args.next().expect("Source not specified."));
     let dest = std::path::PathBuf::from(args.next().expect("Dest not specified."));
-    let mut write_deps = None;
+    let mut write_deps_path = None;
     let mut check_only = false;
     let mut print_source_files = false;
 
@@ -320,7 +297,7 @@ fn main() {
 
         if arg == "--write-deps" {
             let file = args.next().expect("missing argument for --write-deps");
-            write_deps = Some(file.into_string().expect("Invalid UTF econding"));
+            write_deps_path = Some(file.into());
         }
 
         if arg == "--check" {
@@ -332,11 +309,23 @@ fn main() {
         }
     }
 
-    let mut dep_file = write_deps.map(|dep_file| fs::File::create(dep_file).expect("failed to open dependency file"));
+    let mut process_deps = None;
+    let record_deps = match (print_source_files, write_deps_path) {
+        (false, None) => None,
+        (false, Some(path)) => {
+            // TODO: change to insert after MSRV bump
+            Some(&mut process_deps.get_or_insert((Set::new(), ProcessDeps::Write(path))).0)
+        },
+        (true, None) => {
+            Some(&mut process_deps.get_or_insert((Set::new(), ProcessDeps::Print)).0)
+        },
+        (true, Some(path)) => {
+            Some(&mut process_deps.get_or_insert((Set::new(), ProcessDeps::PrintAndWrite(path))).0)
+        },
+    };
 
     let mut opts = GlobalOptions {
-        dep_file: dep_file.as_mut(),
-        print: if print_source_files { Some(PrintItem::Deps) } else { None },
+        record_deps,
     };
 
     let maintainer;
@@ -352,5 +341,35 @@ fn main() {
         }
     };
 
-    process_source(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &command, &mut opts)
+    process_source(spec_file.parent().unwrap_or(".".as_ref()), &source.name, &mut source.source, &command, &mut opts);
+
+    match process_deps {
+        None => (),
+        Some((deps, ProcessDeps::Print)) => print_deps(&deps),
+        Some((deps, ProcessDeps::Write(path))) => write_deps(&deps, &path, &source.name),
+        Some((deps, ProcessDeps::PrintAndWrite(path))) => {
+            print_deps(&deps);
+            write_deps(&deps, &path, &source.name);
+        },
+    }
+}
+
+fn print_deps(deps: &Set<PathBuf>) {
+    for file in deps {
+        // Well, we're on Unix, so we could just write the bytes which would be correct. But meh,
+        // file a PR if this bothers you.
+        println!("{}", file.to_str().unwrap_or_else(|| panic!("Printing file path {} is lossy", file.display())));
+    }
+}
+
+fn write_deps(deps: &Set<PathBuf>, dest: &PathBuf, name: &str) {
+    (|| -> Result<(), io::Error> {
+        let mut dep_file = fs::File::create(dest)?;
+        write!(dep_file, "{}/debcrafter-{}.stamp:", dest.to_str().unwrap_or_else(|| panic!("Printing file path {} is lossy", dest.display())), name)?;
+        for dep in deps {
+            write!(dep_file, " {}", dep.to_str().unwrap_or_else(|| panic!("Printing file path {} is lossy", dep.display())))?;
+        }
+        writeln!(dep_file, "\n")?;
+        Ok(())
+    })().expect("Failed to write dependency file")
 }
