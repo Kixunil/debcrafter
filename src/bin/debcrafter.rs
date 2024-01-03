@@ -295,7 +295,8 @@ fn import_files(instance: &PackageInstance<'_>, debian_dir: &Path, source_dir: &
         let dest = files_dir.join(dest.trim_start_matches("/"));
 
         std::fs::create_dir_all(dest.parent().unwrap_or(".".as_ref())).expect("failed to create imported files directory");
-        std::fs::copy(&source, dest).expect("failed to import file");
+        std::fs::copy(&source, &dest)
+            .unwrap_or_else(|error| panic!("failed to import file {} into {}: {:?}", source.display(), dest.display(), error));
         deps.as_deref_mut().map(|deps| deps.insert(source));
     }
 }
