@@ -261,18 +261,61 @@ fn process_source(source_dir: &Path, name: &str, source: &mut Source, command: &
                     generator::control::generate(&instance, out, upstream_version, source.buildsystem.as_ref().map(AsRef::as_ref)).expect("Failed to generate file");
                     generator::static_files::generate(&instance, &dir).expect("Failed to generate static files");
 
+                    import_files(&instance, &deb_dir, source_dir, deps_opt.as_deref_mut());
+
                     instance.as_service().map(|service| ServiceRule {
                         unit_name: ServiceInstance::service_name(&service).to_owned(),
                         refuse_manual_start: service.spec.refuse_manual_start,
                         refuse_manual_stop: service.spec.refuse_manual_stop,
                     })
                 }));
+        } else {
+            for instance in instances {
+                import_file_deps(&instance, source_dir, deps_opt.as_deref_mut());
+
+            }
         }
     }
 
     if let Some((deb_dir, _, _)) = &generate {
         gen_rules(&deb_dir, source, &services).expect("Failed to generate rules");
     }
+}
+
+fn import_files(instance: &PackageInstance<'_>, debian_dir: &Path, source_dir: &Path, mut deps: Option<&mut Set<PathBuf>>) {
+     use debcrafter::im_repr::PackageOps;
+
+    let files_dir = debian_dir.join("debcrafter/external-files");
+
+    for source_dest in instance.import_files {
+        let source = source_dest[0].expand_to_cow(instance.constants_by_variant());
+        let source = source_dir.join(&*source);
+        let dest = source_dest[1].expand_to_cow(instance.constants_by_variant());
+        validate_import_file_dest(&dest);
+        let dest = files_dir.join(dest.trim_start_matches("/"));
+
+        std::fs::create_dir_all(dest.parent().unwrap_or(".".as_ref())).expect("failed to create imported files directory");
+        std::fs::copy(&source, dest).expect("failed to import file");
+        deps.as_deref_mut().map(|deps| deps.insert(source));
+    }
+}
+
+fn import_file_deps(instance: &PackageInstance<'_>, source_dir: &Path, mut deps: Option<&mut Set<PathBuf>>) {
+     use debcrafter::im_repr::PackageOps;
+
+    for source_dest in instance.import_files {
+        let source = source_dest[0].expand_to_cow(instance.constants_by_variant());
+        let source = source_dir.join(&*source);
+        let dest = source_dest[1].expand_to_cow(instance.constants_by_variant());
+        validate_import_file_dest(&dest);
+        deps.as_deref_mut().map(|deps| deps.insert(source));
+    }
+}
+
+fn validate_import_file_dest(dest: &str) {
+    assert!(dest.starts_with('/'), "destination of import_files ({}) must be absolute", dest);
+    assert!(!dest.ends_with('/'), "destination of import_files ({}) must not be a directory", dest);
+    assert!(dest.find(' ').is_none(), "destination of import_files ({}) must not contain spaces", dest);
 }
 
 enum ProcessDeps {

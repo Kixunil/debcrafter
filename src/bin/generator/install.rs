@@ -24,5 +24,12 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         writeln!(out, "{}", file.expand(instance.constants_by_variant()))?;
     }
 
+    for files in instance.import_files {
+        let file = files[1].expand_to_cow(instance.constants_by_variant());
+        let pos = file.rfind('/').expect("dest import path must be absolute");
+        let dir = &file[..pos];
+        writeln!(out, "debian/debcrafter/external-files/{} {}", file, dir)?;
+    }
+
     Ok(())
 }

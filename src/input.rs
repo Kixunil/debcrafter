@@ -130,6 +130,7 @@ pub struct Package {
     pub(crate) long_doc: TemplateString,
     pub(crate) databases: Map<Database, DbConfig>,
     pub(crate) add_files: Vec<TemplateString>,
+    pub(crate) import_files: Vec<[TemplateString; 2]>,
     pub(crate) add_dirs: Vec<TemplateString>,
     pub(crate) add_links: Vec<TemplateString>,
     pub(crate) add_manpages: Vec<String>,
