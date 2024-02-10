@@ -961,6 +961,7 @@ impl TryFrom<crate::input::Migration> for Migration {
 
 pub struct DbConfig {
     pub template: String,
+    pub min_version: Option<String>,
     pub config_file_owner: Option<String>,
     pub config_file_group: Option<String>,
 }
@@ -975,6 +976,7 @@ impl TryFrom<crate::input::DbConfig> for DbConfig {
         require_fields!(value, template);
         Ok(DbConfig {
             template,
+            min_version: value.min_version,
             config_file_owner: value.config_file_owner,
             config_file_group: value.config_file_group,
         })

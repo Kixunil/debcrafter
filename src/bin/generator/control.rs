@@ -12,9 +12,9 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
 
     let db_deps = if !instance.databases().is_empty() {
         let mut databases = String::new();
-        let sum = instance.databases().iter().map(|(db, _)| db.dbconfig_dependency().len()).sum::<usize>();
+        let sum = instance.databases().iter().map(|(db, opts)| db.dbconfig_dependency().len() + opts.min_version.as_ref().map(|min_version| min_version.len() + 6).unwrap_or_default()).sum::<usize>();
         let mut dbconfig = String::with_capacity(sum + instance.databases().len() * (PREFIX.len() + DELIMITER.len()) + NO_THANKS.len());
-        for db in instance.databases().keys() {
+        for (db, opts) in instance.databases() {
             dbconfig.push_str(PREFIX);
             dbconfig.push_str(db.dbconfig_dependency());
             dbconfig.push_str(DELIMITER);
@@ -25,6 +25,11 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
                 databases.push_str(DELIMITER);
             }
             databases.push_str(db_dep);
+            if let Some(min_version) = &opts.min_version {
+                databases.push_str(" (>= ");
+                databases.push_str(min_version);
+                databases.push_str(")");
+            }
         }
         dbconfig.push_str(NO_THANKS);
         Some(std::iter::once(dbconfig.into()).chain(std::iter::once(Cow::Owned(databases))))
