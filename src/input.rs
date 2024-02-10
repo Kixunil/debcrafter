@@ -267,6 +267,7 @@ pub(crate) struct DbConfig {
     pub(crate) span,
 
     pub(crate) template: String,
+    pub(crate) min_version: String,
     pub(crate) config_file_owner: String,
     pub(crate) config_file_group: String,
 }
