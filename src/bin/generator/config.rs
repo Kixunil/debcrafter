@@ -107,14 +107,31 @@ declare -A CONFIG
         writeln!(file, "db_go")?;
     }
 
-    if let Some((db_type, _)) = instance.databases().iter().next() {
+    if let Some((db_type, db_config)) = instance.databases().iter().next() {
         writeln!(out, "if [ -f /usr/share/dbconfig-common/dpkg/config.{} ];", db_type.lib_name())?;
         writeln!(out, "then")?;
         writeln!(out, "\tdbc_dbtypes={}", db_type.dbconfig_db_type())?;
         writeln!(out, "\tdbc_prio_high=medium")?;
         writeln!(out, "\tdbc_prio_medium=low")?;
         writeln!(out, "\t. /usr/share/dbconfig-common/dpkg/config.{}", db_type.lib_name())?;
-        writeln!(out, "\tdbc_go {} \"$@\"", instance.name)?;
+        if let Some(since) = &db_config.since {
+            // dbconfig supports migration from non-dbconfig-managed databases and fresh
+            // installations but it doesn't have a clean way to handle the case when an upgrading
+            // package previously didn't have any database at all. Thus we need to manually fool it
+            // into thinking this is the first installation.
+            //
+            // Note that we could in principle support migration to debcrafter and retain
+            // dbconfig's semantics of `dbc_first_version` but that's a lot more work that no known
+            // package needs now.
+            writeln!(out, "\tif [ \"$1\" = configure ] && dpkg --validate-version \"$2\" &>/dev/null && dpkg --compare-versions \"{}\" gt \"$2\"", since)?;
+            writeln!(out, "\tthen")?;
+            writeln!(out, "\t\tdbc_go {} configure", instance.name)?;
+            writeln!(out, "\telse")?;
+            writeln!(out, "\t\tdbc_go {} \"$@\"", instance.name)?;
+            writeln!(out, "\tfi")?;
+        } else {
+            writeln!(out, "\tdbc_go {} \"$@\"", instance.name)?;
+        }
         writeln!(out, "fi")?;
     }
 

@@ -598,6 +598,7 @@ pub enum PackageError {
     IVarNotFound(Spanned<String>, Option<std::ops::Range<usize>>),
     EVarNotFound(Spanned<String>),
     VarNotFound(Spanned<String>, Option<std::ops::Range<usize>>),
+    InvalidVersion(Span, String),
     ConstantNotFound(Spanned<String>),
     EVarNotInPackage(Spanned<VPackageName>, Spanned<String>),
     UntemplatedBindPort(Spanned<String>, Option<std::ops::Range<usize>>),
@@ -962,6 +963,7 @@ impl TryFrom<crate::input::Migration> for Migration {
 pub struct DbConfig {
     pub template: String,
     pub min_version: Option<String>,
+    pub since: Option<String>,
     pub config_file_owner: Option<String>,
     pub config_file_group: Option<String>,
 }
@@ -974,9 +976,27 @@ impl TryFrom<crate::input::DbConfig> for DbConfig {
         check_unknown_fields(value.unknown)?;
 
         require_fields!(value, template);
+        let since = if let Some(since) = value.since {
+            let output = std::process::Command::new("dpkg")
+                .args(&["--validate-version", since.get_ref()])
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("Failed to compare versions")
+                .wait_with_output()
+                .expect("Failed to compare versions");
+            if !output.status.success() {
+                let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
+                return Err(PackageError::InvalidVersion(Span::from(&since), err_message));
+            }
+            Some(since.into_inner())
+        } else {
+            None
+        };
+
         Ok(DbConfig {
             template,
             min_version: value.min_version,
+            since,
             config_file_owner: value.config_file_owner,
             config_file_group: value.config_file_group,
         })
@@ -1115,6 +1135,14 @@ impl From<Span> for std::ops::Range<usize> {
     }
 }
 
+impl<'a, T> From<&'a toml::Spanned<T>> for Span {
+    fn from(spanned: &'a toml::Spanned<T>) -> Self {
+        Span {
+            begin: spanned.span().0,
+            end: spanned.span().1,
+        }
+    }
+}
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct MigrationVersion(String);
@@ -1154,7 +1182,7 @@ impl TryFrom<toml::Spanned<String>> for MigrationVersion {
     type Error = MigrationVersionError;
 
     fn try_from(string: toml::Spanned<String>) -> Result<Self, Self::Error> {
-        let span = Span { begin: string.span().0, end: string.span().1 };
+        let span = Span::from(&string);
         let string = string.into_inner();
 
         if !string.starts_with("<< ") {
