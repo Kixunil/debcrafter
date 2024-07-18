@@ -87,6 +87,17 @@ fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Resul
     Ok(())
 }
 
+fn write_db<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Result<()> {
+    let databases = instance.databases();
+    assert!(databases.len() < 2, "More than one database not supported yet");
+    if let Some((db_type, _db_config)) = databases.iter().next() {
+        writeln!(out, ". /usr/share/debconf/confmodule")?;
+        writeln!(out, ". /usr/share/dbconfig-common/dpkg/prerm.{}", db_type.lib_name())?;
+        writeln!(out, "dbc_go {} \"$@\"", instance.name)?;
+    }
+    Ok(())
+}
+
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
     let out = out.set_header("#!/bin/bash\n\nset -e\n\n#DEBHELPER#\n\n");
     let mut out = out.finalize();
@@ -94,6 +105,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     write_plug(&mut out, instance)?;
     write_alternatives(&mut out, instance)?;
     write_patches(&mut out, instance)?;
+    write_db(&mut out, instance)?;
 
     if let Some(out) = out.created() {
         writeln!(out, "exit 0")?;
