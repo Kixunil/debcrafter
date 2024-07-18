@@ -232,7 +232,24 @@ impl<H: WriteHeader> HandlePostinst for SduHandler<H> {
         writeln!(self.out, "dbc_generate_include_owner={}:{}", request.config_owner, request.config_group)?;
         writeln!(self.out, "dbc_generate_include_perms={}", request.config_mode)?;
         writeln!(self.out, ". /usr/share/dbconfig-common/dpkg/postinst.{}", request.db_type.lib_name())?;
-        writeln!(self.out, "dbc_go {} \"$@\"", request.pkg_name)?;
+        if let Some(since) = request.since {
+            // dbconfig supports migration from non-dbconfig-managed databases and fresh
+            // installations but it doesn't have a clean way to handle the case when an upgrading
+            // package previously didn't have any database at all. Thus we need to manually fool it
+            // into thinking this is the first installation.
+            //
+            // Note that we could in principle support migration to debcrafter and retain
+            // dbconfig's semantics of `dbc_first_version` but that's a lot more work that no known
+            // package needs now.
+            writeln!(self.out, "if [ \"$1\" = configure ] && dpkg --validate-version \"$2\" &>/dev/null && dpkg --compare-versions \"{}\" gt \"$2\"", since)?;
+            writeln!(self.out, "then")?;
+            writeln!(self.out, "\tdbc_go {} configure", request.pkg_name)?;
+            writeln!(self.out, "else")?;
+            writeln!(self.out, "\tdbc_go {} \"$@\"", request.pkg_name)?;
+            writeln!(self.out, "fi")?;
+        } else {
+            writeln!(self.out, "dbc_go {} \"$@\"", request.pkg_name)?;
+        }
         Ok(())
     }
 

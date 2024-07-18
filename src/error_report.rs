@@ -121,6 +121,11 @@ impl IntoDiagnostic for crate::im_repr::PackageError {
                     },
                 }
             },
+            PackageError::InvalidVersion(version, message) => {
+                Diagnostic::error()
+                    .with_message("invalid package version")
+                    .with_labels(vec![Label::primary(file_id, version).with_message(message)])
+            },
             PackageError::InvalidPackageName(error) => {
                 let mut invalid_chars = error.value.invalid_chars
                     .iter()

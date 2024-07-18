@@ -22,6 +22,7 @@ pub struct Config<'a> {
 pub struct CreateDbRequest<'a> {
     pub pkg_name: &'a str,
     pub db_type: &'a Database,
+    pub since: Option<&'a str>,
     pub config_path: &'a str,
     pub config_mode: &'a str,
     pub config_owner: &'a str,
@@ -537,6 +538,7 @@ pub fn handle_instance<T: HandlePostinst>(mut handler: T, instance: &PackageInst
         let request = CreateDbRequest {
             pkg_name: &instance.name,
             db_type,
+            since: db_config.since.as_deref(),
             config_path: &path,
             config_mode,
             config_owner: &config_owner,
