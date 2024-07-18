@@ -154,3 +154,51 @@ impl<H: WriteHeader> io::Write for LazyCreate<H> {
         }
     }
 }
+
+pub struct LazyWriter<'a, W> {
+    writer: W,
+    head: &'a [u8],
+    tail: &'a [u8],
+    was_written: bool,
+}
+
+impl<'a, W: io::Write> LazyWriter<'a, W> {
+    pub fn new(writer: W, head: &'a [u8], tail: &'a [u8]) -> Self {
+        LazyWriter {
+            writer,
+            head,
+            tail,
+            was_written: false,
+        }
+    }
+
+    pub fn finish(mut self) -> io::Result<()> {
+        if self.was_written {
+            assert!(self.head.is_empty());
+            if !self.tail.is_empty() {
+                self.writer.write_all(self.tail)
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'a, W: io::Write> io::Write for LazyWriter<'a, W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if !self.head.is_empty() {
+            let written = self.writer.write(self.head)?;
+            self.head = &self.head[written..];
+            self.was_written = true;
+        }
+        let amount = self.writer.write(bytes)?;
+        self.was_written |= amount > 0;
+        Ok(amount)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
