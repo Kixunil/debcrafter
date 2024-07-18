@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 use std::borrow::Cow;
 use debcrafter::im_repr::{PackageInstance, PackageOps};
 use debcrafter::postinst::{CommandEnv, CommandPrivileges};
@@ -88,12 +88,16 @@ fn write_plug<W: io::Write>(mut out: W, instance: &PackageInstance) -> io::Resul
 }
 
 pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Result<()> {
-    let out = out.set_header("#!/bin/bash\n\nset -e\n\n");
+    let out = out.set_header("#!/bin/bash\n\nset -e\n\n#DEBHELPER#\n\n");
     let mut out = out.finalize();
 
     write_plug(&mut out, instance)?;
     write_alternatives(&mut out, instance)?;
     write_patches(&mut out, instance)?;
+
+    if let Some(out) = out.created() {
+        writeln!(out, "exit 0")?;
+    }
 
     Ok(())
 }
