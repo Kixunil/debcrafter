@@ -16,7 +16,7 @@ impl TryFrom<String> for Variant {
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
         for c in string.chars() {
-            if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+            if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
                 return Err(VariantError { c, string });
             }
         }
