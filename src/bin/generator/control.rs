@@ -40,7 +40,8 @@ fn calculate_dependencies<'a>(instance: &'a PackageInstance, upstream_version: &
     let (main_dep, is_service, patch, external) = match &instance.spec {
         PackageSpec::Base(_) => (None, false, None, false),
         PackageSpec::Service(service) => {
-            (Some(Cow::Borrowed(&*service.bin_package)), true, service.min_patch.as_ref(), false)
+            let bin_package = service.bin_package.expand_to_cow(instance.constants_by_variant());
+            (Some(bin_package), true, service.min_patch.as_ref(), false)
         },
         PackageSpec::ConfExt(confext) => if confext.depends_on_extended {
             (Some(confext.extends.expand_to_cow(instance.variant())), false, confext.min_patch.as_ref(), confext.external)

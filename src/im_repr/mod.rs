@@ -1,22 +1,27 @@
+use crate::template::{self, TemplateString};
+use crate::types::{NonEmptyMap, Spanned, VPackageName, VPackageNameError, Variant};
+use indexmap::IndexMap as OrderedHashMap;
 use std::borrow::Cow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use crate::template::TemplateString;
-use crate::types::{VPackageName, VPackageNameError, Variant, NonEmptyMap, Spanned};
 use std::path::{Path, PathBuf};
-use indexmap::IndexMap as OrderedHashMap;
 
 mod base;
-mod service;
 mod conf_ext;
+mod service;
 mod vars;
 
 pub use base::BasePackageSpec;
-pub use service::{ServicePackageSpec, ConfParam, ServiceInstance};
 pub use conf_ext::ConfExtPackageSpec;
-pub use vars::{VarType, PathVar, InternalVar, ExternalVar, HiddenVar, HiddenVarVal, InternalVarCondition};
+pub use service::{ConfParam, ServiceInstance, ServicePackageSpec};
+pub use vars::{
+    ExternalVar, HiddenVar, HiddenVarVal, InternalVar, InternalVarCondition, PathVar, VarType,
+};
 
-pub use crate::input::{FileDeps, Database, Architecture, BoolOrVecTemplateString, DebconfPriority, DirRepr, FileVar, FileType, ConfFormat};
+pub use crate::input::{
+    Architecture, BoolOrVecTemplateString, ConfFormat, Database, DebconfPriority, DirRepr,
+    FileDeps, FileType, FileVar,
+};
 
 use super::{Map, Set};
 use crate::types::DynVarName;
@@ -65,7 +70,10 @@ pub trait PackageConfig {
     fn config(&self) -> &Map<TemplateString, Config>;
 }
 
-impl<'a, T> PackageConfig for &'a T where T: PackageConfig {
+impl<'a, T> PackageConfig for &'a T
+where
+    T: PackageConfig,
+{
     fn config(&self) -> &Map<TemplateString, Config> {
         (*self).config()
     }
@@ -111,7 +119,11 @@ pub struct Package {
 }
 
 impl Package {
-    pub fn instantiate<'a>(&'a self, variant: Option<&'a Variant>, includes: Option<&'a Map<VPackageName, Package>>) -> PackageInstance<'a> {
+    pub fn instantiate<'a>(
+        &'a self,
+        variant: Option<&'a Variant>,
+        includes: Option<&'a Map<VPackageName, Package>>,
+    ) -> PackageInstance<'a> {
         let name = self.name.expand_to_cow(variant);
 
         PackageInstance {
@@ -144,19 +156,32 @@ impl Package {
         }
     }
 
-    pub fn load_includes<P: AsRef<Path>>(&self, dir: P, mut deps: Option<&mut Set<PathBuf>>) -> Map<VPackageName, Package> {
+    pub fn load_includes<P: AsRef<Path>>(
+        &self,
+        dir: P,
+        mut deps: Option<&mut Set<PathBuf>>,
+    ) -> Map<VPackageName, Package> {
         let mut result = Map::new();
         for conf in self.config.values() {
             if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
                 for pkg in evars.keys() {
                     let deps = deps.as_deref_mut();
-                    result.entry(pkg.value.to_owned()).or_insert_with(load_include(dir.as_ref(), pkg, deps));
+                    result
+                        .entry(pkg.value.to_owned())
+                        .or_insert_with(load_include(dir.as_ref(), pkg, deps));
                 }
             }
         }
 
-        if let PackageSpec::ConfExt(ConfExtPackageSpec { extends, external: false, .. }) = &self.spec {
-            result.entry(extends.clone()).or_insert_with(load_include(dir.as_ref(), extends, deps));
+        if let PackageSpec::ConfExt(ConfExtPackageSpec {
+            extends,
+            external: false,
+            ..
+        }) = &self.spec
+        {
+            result
+                .entry(extends.clone())
+                .or_insert_with(load_include(dir.as_ref(), extends, deps));
         }
 
         result
@@ -204,9 +229,17 @@ impl MissingVars {
     }
 
     fn into_errors(self, errors: &mut Vec<PackageError>) {
-        errors.extend(self.internal.into_iter().map(|error| PackageError::IVarNotFound(error.0, error.1)));
+        errors.extend(
+            self.internal
+                .into_iter()
+                .map(|error| PackageError::IVarNotFound(error.0, error.1)),
+        );
         errors.extend(self.external.into_iter().map(PackageError::EVarNotFound));
-        errors.extend(self.any.into_iter().map(|error| PackageError::VarNotFound(error.0, error.1)));
+        errors.extend(
+            self.any
+                .into_iter()
+                .map(|error| PackageError::VarNotFound(error.0, error.1)),
+        );
     }
 }
 
@@ -219,10 +252,19 @@ impl<'a> PackageInstance<'a> {
         let mut errors = Vec::new();
         let mut missing = Default::default();
         for config in self.config().values() {
-            if let ConfType::Dynamic { ivars, evars, hvars, .. } = &config.conf_type {
-                self.validate_ivars(ivars, evars, &mut missing).unwrap_or_else(|error| errors.extend(error));
-                self.validate_evars(evars).unwrap_or_else(|error| errors.extend(error));
-                self.validate_hvars(hvars, &mut missing).unwrap_or_else(|error| errors.extend(error));
+            if let ConfType::Dynamic {
+                ivars,
+                evars,
+                hvars,
+                ..
+            } = &config.conf_type
+            {
+                self.validate_ivars(ivars, evars, &mut missing)
+                    .unwrap_or_else(|error| errors.extend(error));
+                self.validate_evars(evars)
+                    .unwrap_or_else(|error| errors.extend(error));
+                self.validate_hvars(hvars, &mut missing)
+                    .unwrap_or_else(|error| errors.extend(error));
             }
         }
         missing.into_errors(&mut errors);
@@ -233,43 +275,59 @@ impl<'a> PackageInstance<'a> {
         }
     }
 
-    fn validate_ivars(&self, ivars: &OrderedHashMap<Spanned<String>, InternalVar>, evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>, missing: &mut MissingVars) -> Result<(), Vec<PackageError>> {
+    fn validate_ivars(
+        &self,
+        ivars: &OrderedHashMap<Spanned<String>, InternalVar>,
+        evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>,
+        missing: &mut MissingVars,
+    ) -> Result<(), Vec<PackageError>> {
         let mut errors = Vec::new();
 
         let mut check_ivars = Set::new();
         for (var, var_spec) in ivars {
             match (&var_spec.ty, self.variant(), &var_spec.default) {
-                 (VarType::BindPort, Some(_), Some(default)) if default.value.components().vars().count() == 0 => {
-                     errors.push(PackageError::UntemplatedBindPort(var.to_owned(), Some(default.span_range())));
+                (VarType::BindPort, Some(_), Some(default))
+                    if default.value.components().vars().count() == 0 =>
+                {
+                    errors.push(PackageError::UntemplatedBindPort(
+                        var.to_owned(),
+                        Some(default.span_range()),
+                    ));
                 }
                 (VarType::BindPort, Some(_), None) => {
-                     errors.push(PackageError::UntemplatedBindPort(var.to_owned(), None));
-                 }
+                    errors.push(PackageError::UntemplatedBindPort(var.to_owned(), None));
+                }
                 _ => (),
             }
 
             for cond in &var_spec.conditions {
                 if let InternalVarCondition::Var { name, .. } = cond {
                     match &**name {
-                        DynVarName::Internal(var) => if !check_ivars.contains(&**var) {
-                            let var = Spanned {
-                                value: var.clone().into(),
-                                span_start: name.span_start + 1,
-                                span_end: name.span_end - 1,
-                            };
-                            missing.push_internal(var);
-                        },
-                        DynVarName::Absolute(var_package, var) if var_package.expand_to_cow(self.variant()) == self.config_pkg_name() => if !check_ivars.contains(&**var) {
-                            let var = Spanned {
-                                value: var.clone().into(),
-                                span_start: name.span_start + 1,
-                                span_end: name.span_end - 1,
-                            };
-                            missing.push_internal(var);
-                        },
+                        DynVarName::Internal(var) => {
+                            if !check_ivars.contains(&**var) {
+                                let var = Spanned {
+                                    value: var.clone().into(),
+                                    span_start: name.span_start + 1,
+                                    span_end: name.span_end - 1,
+                                };
+                                missing.push_internal(var);
+                            }
+                        }
+                        DynVarName::Absolute(var_package, var)
+                            if var_package.expand_to_cow(self.variant())
+                                == self.config_pkg_name() =>
+                        {
+                            if !check_ivars.contains(&**var) {
+                                let var = Spanned {
+                                    value: var.clone().into(),
+                                    span_start: name.span_start + 1,
+                                    span_end: name.span_end - 1,
+                                };
+                                missing.push_internal(var);
+                            }
+                        }
                         DynVarName::Absolute(var_package, var) => {
-                            let found = evars.get(var_package)
-                                .and_then(|pkg| pkg.get(&**var));
+                            let found = evars.get(var_package).and_then(|pkg| pkg.get(&**var));
                             if found.is_none() {
                                 let error = Spanned {
                                     value: format!("{}/{}", var_package.as_raw(), var),
@@ -278,7 +336,7 @@ impl<'a> PackageInstance<'a> {
                                 };
                                 missing.push_external(error);
                             }
-                        },
+                        }
                     }
                 }
             }
@@ -293,7 +351,10 @@ impl<'a> PackageInstance<'a> {
         }
     }
 
-    fn validate_evars(&self, evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>) -> Result<(), Vec<PackageError>> {
+    fn validate_evars(
+        &self,
+        evars: &Map<Spanned<VPackageName>, Map<Spanned<String>, ExternalVar>>,
+    ) -> Result<(), Vec<PackageError>> {
         let mut errors = Vec::new();
 
         for (pkg_name, vars) in evars {
@@ -302,21 +363,23 @@ impl<'a> PackageInstance<'a> {
                 None => {
                     errors.push(PackageError::PackageNotFound(pkg_name.to_owned()));
                     continue;
-                },
+                }
             };
 
             for var in vars.keys() {
-                let found = &pkg
-                    .config()
-                    .iter()
-                    .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                let found = &pkg.config().iter().find_map(|(_, conf)| {
+                    if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
                         ivars.get(&**var)
                     } else {
                         None
-                    });
+                    }
+                });
 
                 if found.is_none() {
-                    errors.push(PackageError::EVarNotInPackage(pkg_name.to_owned(), var.to_owned()));
+                    errors.push(PackageError::EVarNotInPackage(
+                        pkg_name.to_owned(),
+                        var.to_owned(),
+                    ));
                 }
             }
         }
@@ -328,7 +391,11 @@ impl<'a> PackageInstance<'a> {
         }
     }
 
-    fn validate_hvars(&self, hvars: &OrderedHashMap<Spanned<String>, HiddenVar>, missing: &mut MissingVars) -> Result<(), Vec<PackageError>> {
+    fn validate_hvars(
+        &self,
+        hvars: &OrderedHashMap<Spanned<String>, HiddenVar>,
+        missing: &mut MissingVars,
+    ) -> Result<(), Vec<PackageError>> {
         let mut errors = Vec::new();
         let mut hvars_accum = Set::new();
         for (var, var_spec) in hvars {
@@ -344,10 +411,12 @@ impl<'a> PackageInstance<'a> {
                             let found = self
                                 .config()
                                 .iter()
-                                .find_map(|(_, conf)| if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
-                                    ivars.get(var_name)
-                                } else {
-                                    None
+                                .find_map(|(_, conf)| {
+                                    if let ConfType::Dynamic { ivars, .. } = &conf.conf_type {
+                                        ivars.get(var_name)
+                                    } else {
+                                        None
+                                    }
                                 })
                                 .map(drop)
                                 .or_else(|| hvars_accum.get(var_name).map(drop));
@@ -368,29 +437,25 @@ impl<'a> PackageInstance<'a> {
                             };
                             match VPackageName::try_from(spanned_pkg_name) {
                                 Ok(v_pkg_name) => {
-                                    let found = self
-                                        .config()
-                                        .iter()
-                                        .find_map(|(_, conf)| {
-                                            if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
-                                                evars.get(&v_pkg_name)
-                                                    .and_then(|pkg| pkg.get(var_name))
-                                            } else {
-                                                None
-                                            }
-                                        });
+                                    let found = self.config().iter().find_map(|(_, conf)| {
+                                        if let ConfType::Dynamic { evars, .. } = &conf.conf_type {
+                                            evars.get(&v_pkg_name).and_then(|pkg| pkg.get(var_name))
+                                        } else {
+                                            None
+                                        }
+                                    });
                                     if found.is_none() {
                                         let error = Spanned {
                                             value: var.to_owned(),
                                             span_start: template.span_start + var_pos,
-                                            span_end: template.span_start + var_pos + var.len()
+                                            span_end: template.span_start + var_pos + var.len(),
                                         };
                                         missing.push_external(error)
                                     }
-                                },
+                                }
                                 Err(error) => {
                                     errors.push(PackageError::InvalidPackageName(error));
-                                },
+                                }
                             };
                         }
                     } else {
@@ -400,7 +465,7 @@ impl<'a> PackageInstance<'a> {
                             let error = PackageError::ConstantNotFound(Spanned {
                                 value: var.to_owned(),
                                 span_start: template.span_start + var_pos,
-                                span_end: template.span_start + var_pos + var.len()
+                                span_end: template.span_start + var_pos + var.len(),
                             });
                             errors.push(error);
                         }
@@ -431,20 +496,35 @@ impl TryFrom<crate::input::Config> for Config {
         check_unknown_fields(value.unknown)?;
 
         let conf_type = match (value.content, value.format) {
-            (Some(content), None) => {
-                ConfType::Static {
-                    content, internal: value.internal.unwrap_or_default(),
-                }
+            (Some(content), None) => ConfType::Static {
+                content,
+                internal: value.internal.unwrap_or_default(),
             },
             (None, Some(format)) => {
-                let ivars = value.ivars.unwrap_or_default().into_iter()
+                let ivars = value
+                    .ivars
+                    .unwrap_or_default()
+                    .into_iter()
                     .map(|(name, var)| Ok((name.into(), var.try_into()?)))
                     .collect::<Result<_, PackageError>>()?;
-                let hvars = value.hvars.unwrap_or_default().into_iter()
+                let hvars = value
+                    .hvars
+                    .unwrap_or_default()
+                    .into_iter()
                     .map(|(name, var)| Ok((name.into(), var.try_into()?)))
                     .collect::<Result<_, PackageError>>()?;
-                let evars = value.evars.unwrap_or_default().into_iter()
-                    .map(|(name, var)| Ok((name.into(), var.into_iter().map(|var| Ok((var.0.into(), var.1.try_into()?))).collect::<Result<_, PackageError>>()?)))
+                let evars = value
+                    .evars
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(name, var)| {
+                        Ok((
+                            name.into(),
+                            var.into_iter()
+                                .map(|var| Ok((var.0.into(), var.1.try_into()?)))
+                                .collect::<Result<_, PackageError>>()?,
+                        ))
+                    })
                     .collect::<Result<_, PackageError>>()?;
                 ConfType::Dynamic {
                     format,
@@ -459,9 +539,16 @@ impl TryFrom<crate::input::Config> for Config {
                     comment: value.comment,
                     postprocess: value.postprocess.map(TryFrom::try_from).transpose()?,
                 }
-            },
-            (None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["content"], &["format"]])),
-            (Some(_), Some(_)) => return Err(PackageError::Ambiguous(value.span, "configuration type")),
+            }
+            (None, None) => {
+                return Err(PackageError::MissingFieldsOneOf(
+                    value.span,
+                    &[&["content"], &["format"]],
+                ))
+            }
+            (Some(_), Some(_)) => {
+                return Err(PackageError::Ambiguous(value.span, "configuration type"))
+            }
         };
 
         Ok(Config {
@@ -472,15 +559,23 @@ impl TryFrom<crate::input::Config> for Config {
     }
 }
 
-fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a>) -> impl 'a + FnMut() -> Package {
+fn load_include<'a>(
+    dir: &'a Path,
+    name: &'a VPackageName,
+    mut deps: FileDeps<'a>,
+) -> impl 'a + FnMut() -> Package {
     use crate::error_report::Report;
 
     move || {
         let file = name.sps_path(dir);
-        let source = std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("failed to read {}: {}", file.display(), error));
-        let package = toml::from_str::<crate::input::Package>(&source).expect("Failed to parse include");
+        let source = std::fs::read_to_string(&file)
+            .unwrap_or_else(|error| panic!("failed to read {}: {}", file.display(), error));
+        let package =
+            toml::from_str::<crate::input::Package>(&source).expect("Failed to parse include");
         deps.as_mut().map(|deps| deps.insert(file.clone()));
-        package.try_into().unwrap_or_else(|error: PackageError| error.report(file.display().to_string(), source))
+        package
+            .try_into()
+            .unwrap_or_else(|error: PackageError| error.report(file.display().to_string(), source))
     }
 }
 
@@ -490,19 +585,32 @@ impl TryFrom<crate::input::Package> for Package {
     fn try_from(value: crate::input::Package) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
-        let extra_groups = value.extra_groups
+        let extra_groups = value
+            .extra_groups
             .unwrap_or_default()
             .into_iter()
             .map(|group| Ok((group.0, group.1.try_into()?)))
             .collect::<Result<_, PackageError>>()?;
 
-        let spec = match (value.architecture, value.bin_package, value.binary, value.user, value.extends) {
-            (Some(architecture), None, None, None, None) => PackageSpec::Base(BasePackageSpec { architecture: architecture.into_inner(), }),
+        let spec = match (
+            value.architecture,
+            value.bin_package,
+            value.binary,
+            value.user,
+            value.extends,
+        ) {
+            (Some(architecture), None, None, None, None) => PackageSpec::Base(BasePackageSpec {
+                architecture: architecture.into_inner(),
+            }),
             (None, Some(bin_package), Some(binary), Some(user), None) => {
-                let service = ServicePackageSpec { bin_package,
+                let service = ServicePackageSpec {
+                    bin_package: template::TemplateString::try_from(bin_package).unwrap(),
                     min_patch: value.min_patch,
-                    binary,
-                    conf_param: ConfParam::from_input(value.conf_param, value.bare_conf_param.unwrap_or_default()),
+                    binary: template::TemplateString::try_from(binary).unwrap(),
+                    conf_param: ConfParam::from_input(
+                        value.conf_param,
+                        value.bare_conf_param.unwrap_or_default(),
+                    ),
                     conf_d: value.conf_d.map(TryInto::try_into).transpose()?,
                     user: user.try_into()?,
                     condition_path_exists: value.condition_path_exists,
@@ -523,33 +631,60 @@ impl TryFrom<crate::input::Package> for Package {
                     extra_groups,
                 };
                 PackageSpec::Service(service)
-            },
-            (None, None, None, None, Some(extends)) => PackageSpec::ConfExt(ConfExtPackageSpec { extends: extends.into_inner(), replaces: value.replaces.unwrap_or_default(), depends_on_extended: value.depends_on_extended.unwrap_or_default(), min_patch: value.min_patch, external: value.external.unwrap_or_default(), extra_groups, }),
-            (None, None, None, None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["architecture"], &["bin_package", "binary", "user"], &["extends"]])),
-            (_architecture, _bin_package, _binary, _user, _extends) => return Err(PackageError::Ambiguous(value.span, "package type")),
+            }
+            (None, None, None, None, Some(extends)) => PackageSpec::ConfExt(ConfExtPackageSpec {
+                extends: extends.into_inner(),
+                replaces: value.replaces.unwrap_or_default(),
+                depends_on_extended: value.depends_on_extended.unwrap_or_default(),
+                min_patch: value.min_patch,
+                external: value.external.unwrap_or_default(),
+                extra_groups,
+            }),
+            (None, None, None, None, None) => {
+                return Err(PackageError::MissingFieldsOneOf(
+                    value.span,
+                    &[
+                        &["architecture"],
+                        &["bin_package", "binary", "user"],
+                        &["extends"],
+                    ],
+                ))
+            }
+            (_architecture, _bin_package, _binary, _user, _extends) => {
+                return Err(PackageError::Ambiguous(value.span, "package type"))
+            }
         };
 
-        let migrations = value.migrations.unwrap_or_default().into_iter()
+        let migrations = value
+            .migrations
+            .unwrap_or_default()
+            .into_iter()
             .map(|(version, migration)| Ok((version.try_into()?, migration.try_into()?)))
             .collect::<Result<_, PackageError>>()?;
 
-        let config = value.config.unwrap_or_default().into_iter()
+        let config = value
+            .config
+            .unwrap_or_default()
+            .into_iter()
             .map(|(key, value)| Ok((key, value.try_into()?)))
             .collect::<Result<_, PackageError>>()?;
 
-        let plug = value.plug
+        let plug = value
+            .plug
             .unwrap_or_default()
             .into_iter()
             .map(TryFrom::try_from)
             .collect::<Result<_, _>>()?;
 
-        let databases = value.databases
+        let databases = value
+            .databases
             .unwrap_or_default()
             .into_iter()
             .map(|db| Ok((db.0, db.1.try_into()?)))
             .collect::<Result<_, PackageError>>()?;
 
-        let alternatives = value.alternatives
+        let alternatives = value
+            .alternatives
             .unwrap_or_default()
             .into_iter()
             .map(|alternative| Ok((alternative.0, alternative.1.try_into()?)))
@@ -675,7 +810,9 @@ pub trait PackageOps<'a>: PackageConfig {
     fn service_name(&self) -> Option<&str>;
     fn service_user(&self) -> Option<Cow<'_, str>>;
     fn service_group(&self) -> Option<Cow<'_, str>>;
-    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>>;
+    fn extra_groups(
+        &self,
+    ) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>>;
     fn get_include(&self, name: &VPackageName) -> Option<&Package>;
     fn is_conf_ext(&self) -> bool;
     fn conf_dir(&self) -> Option<&str>;
@@ -703,9 +840,14 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
             if confext.external {
                 "/".into()
             } else {
-                self
-                    .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
+                self.get_include(&confext.extends)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Package {} extended by {} not found",
+                            confext.extends.expand_to_cow(self.variant),
+                            self.name
+                        )
+                    })
                     .instantiate(self.variant, None)
                     .config_sub_dir()
                     .into_owned()
@@ -721,9 +863,14 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
             if confext.external {
                 "/".into()
             } else {
-                self
-                    .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
+                self.get_include(&confext.extends)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Package {} extended by {} not found",
+                            confext.extends.expand_to_cow(self.variant),
+                            self.name
+                        )
+                    })
                     .instantiate(self.variant, None)
                     .config_sub_dir()
                     .into_owned()
@@ -743,40 +890,60 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
     }
 
     fn service_user(&self) -> Option<Cow<'_, str>> {
-        self.as_service().map(|service| service.user_name()).or_else(|| if let PackageSpec::ConfExt(confext) = &self.spec {
-            if confext.depends_on_extended && !confext.external {
-                self
-                    .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
-                    .instantiate(self.variant, None)
-                    .service_user()
-                    .map(|user| Cow::Owned(String::from(user)))
-            } else {
-                None
-            }
-        } else {
-            None
-        })
+        self.as_service()
+            .map(|service| service.user_name())
+            .or_else(|| {
+                if let PackageSpec::ConfExt(confext) = &self.spec {
+                    if confext.depends_on_extended && !confext.external {
+                        self.get_include(&confext.extends)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Package {} extended by {} not found",
+                                    confext.extends.expand_to_cow(self.variant),
+                                    self.name
+                                )
+                            })
+                            .instantiate(self.variant, None)
+                            .service_user()
+                            .map(|user| Cow::Owned(String::from(user)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
     }
 
     fn service_group(&self) -> Option<Cow<'_, str>> {
-        self.as_service().and_then(|service| ServiceInstance::service_group(&service)).or_else(|| if let PackageSpec::ConfExt(confext) = &self.spec {
-            if confext.depends_on_extended && !confext.external {
-                self
-                    .get_include(&confext.extends)
-                    .unwrap_or_else(|| panic!("Package {} extended by {} not found", confext.extends.expand_to_cow(self.variant), self.name))
-                    .instantiate(self.variant, None)
-                    .service_group()
-                    .map(|group| Cow::Owned(String::from(group)))
-            } else {
-                None
-            }
-        } else {
-            None
-        })
+        self.as_service()
+            .and_then(|service| ServiceInstance::service_group(&service))
+            .or_else(|| {
+                if let PackageSpec::ConfExt(confext) = &self.spec {
+                    if confext.depends_on_extended && !confext.external {
+                        self.get_include(&confext.extends)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Package {} extended by {} not found",
+                                    confext.extends.expand_to_cow(self.variant),
+                                    self.name
+                                )
+                            })
+                            .instantiate(self.variant, None)
+                            .service_group()
+                            .map(|group| Cow::Owned(String::from(group)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
     }
 
-    fn extra_groups(&self) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>> {
+    fn extra_groups(
+        &self,
+    ) -> Option<NonEmptyMap<TemplateString, ExtraGroup, &'_ Map<TemplateString, ExtraGroup>>> {
         match &self.spec {
             PackageSpec::Service(service) => NonEmptyMap::from_map(&service.extra_groups),
             PackageSpec::ConfExt(confext) => {
@@ -786,13 +953,15 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
                     panic!("The configuration extension {} doesn't depent on extended package yet it wants to add the user to a group. The user is not guaranteed to exist.", self.name);
                 }
                 groups
-            },
+            }
             PackageSpec::Base(_) => None,
         }
     }
 
     fn get_include(&self, name: &VPackageName) -> Option<&Package> {
-        self.includes.as_ref().and_then(|includes| includes.get(name))
+        self.includes
+            .as_ref()
+            .and_then(|includes| includes.get(name))
     }
 
     fn is_conf_ext(&self) -> bool {
@@ -800,7 +969,13 @@ impl<'a> PackageOps<'a> for PackageInstance<'a> {
     }
 
     fn conf_dir(&self) -> Option<&str> {
-        self.as_service().and_then(|service| service.spec.conf_d.as_ref().map(|conf_d| conf_d.name.as_ref()))
+        self.as_service().and_then(|service| {
+            service
+                .spec
+                .conf_d
+                .as_ref()
+                .map(|conf_d| conf_d.name.as_ref())
+        })
     }
 
     fn databases(&self) -> &Map<Database, DbConfig> {
@@ -824,7 +999,10 @@ impl<'a> crate::template::Query for ConstantsByVariant<'a> {
         if key == "variant" {
             self.variant.map(Variant::as_str)
         } else {
-            self.constants.get(key)?.get(self.variant?).map(AsRef::as_ref)
+            self.constants
+                .get(key)?
+                .get(self.variant?)
+                .map(AsRef::as_ref)
         }
     }
 }
@@ -836,7 +1014,10 @@ pub enum PackageSpec {
 }
 
 pub enum ConfType {
-    Static { content: String, internal: bool, },
+    Static {
+        content: String,
+        internal: bool,
+    },
     Dynamic {
         format: ConfFormat,
         insert_header: Option<TemplateString>,
@@ -861,15 +1042,24 @@ pub struct GeneratedFile {
 impl TryFrom<crate::input::GeneratedFile> for GeneratedFile {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::GeneratedFile) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         let ty = match (value.file, value.dir) {
             (Some(file), None) => GeneratedType::File(file),
             (None, Some(dir)) => GeneratedType::Dir(dir),
-            (None, None) => return Err(PackageError::MissingFieldsOneOf(value.span, &[&["file"], &["dir"]])),
-            (Some(_), Some(_)) => return Err(PackageError::Ambiguous(value.span, "type of generated filesystem object")),
+            (None, None) => {
+                return Err(PackageError::MissingFieldsOneOf(
+                    value.span,
+                    &[&["file"], &["dir"]],
+                ))
+            }
+            (Some(_), Some(_)) => {
+                return Err(PackageError::Ambiguous(
+                    value.span,
+                    "type of generated filesystem object",
+                ))
+            }
         };
 
         Ok(GeneratedFile {
@@ -894,11 +1084,13 @@ pub struct PostProcess {
 impl TryFrom<crate::input::PostProcess> for PostProcess {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::PostProcess) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
-        let generates = value.generates.unwrap_or_default().into_iter()
+        let generates = value
+            .generates
+            .unwrap_or_default()
+            .into_iter()
             .map(TryFrom::try_from)
             .collect::<Result<_, _>>()?;
 
@@ -922,7 +1114,6 @@ pub struct Plug {
 impl TryFrom<crate::input::Plug> for Plug {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::Plug) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
@@ -945,12 +1136,14 @@ pub struct Migration {
 impl TryFrom<crate::input::Migration> for Migration {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::Migration) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         if value.config.is_none() && value.postinst_finish.is_none() {
-            return Err(PackageError::MissingFieldsOneOf(value.span, &[&["config"], &["postinst_finish"]]));
+            return Err(PackageError::MissingFieldsOneOf(
+                value.span,
+                &[&["config"], &["postinst_finish"]],
+            ));
         }
 
         Ok(Migration {
@@ -971,7 +1164,6 @@ pub struct DbConfig {
 impl TryFrom<crate::input::DbConfig> for DbConfig {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::DbConfig) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
@@ -985,8 +1177,12 @@ impl TryFrom<crate::input::DbConfig> for DbConfig {
                 .wait_with_output()
                 .expect("Failed to compare versions");
             if !output.status.success() {
-                let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
-                return Err(PackageError::InvalidVersion(Span::from(&since), err_message));
+                let err_message =
+                    String::from_utf8(output.stderr).expect("Failed to decode error message");
+                return Err(PackageError::InvalidVersion(
+                    Span::from(&since),
+                    err_message,
+                ));
             }
             Some(since.into_inner())
         } else {
@@ -1010,14 +1206,11 @@ pub struct ExtraGroup {
 impl TryFrom<crate::input::ExtraGroup> for ExtraGroup {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::ExtraGroup) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         require_fields!(value, create);
-        Ok(ExtraGroup {
-            create,
-        })
+        Ok(ExtraGroup { create })
     }
 }
 
@@ -1028,14 +1221,11 @@ pub struct RuntimeDir {
 impl TryFrom<crate::input::RuntimeDir> for RuntimeDir {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::RuntimeDir) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         require_fields!(value, mode);
-        Ok(RuntimeDir {
-            mode,
-        })
+        Ok(RuntimeDir { mode })
     }
 }
 
@@ -1047,15 +1237,11 @@ pub struct ConfDir {
 impl TryFrom<crate::input::ConfDir> for ConfDir {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::ConfDir) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         require_fields!(value, param, name);
-        Ok(ConfDir {
-            param,
-            name,
-        })
+        Ok(ConfDir { param, name })
     }
 }
 
@@ -1068,7 +1254,6 @@ pub struct UserSpec {
 
 impl TryFrom<crate::input::UserSpec> for UserSpec {
     type Error = PackageError;
-
 
     fn try_from(value: crate::input::UserSpec) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
@@ -1089,14 +1274,11 @@ pub struct CreateUser {
 impl TryFrom<crate::input::CreateUser> for CreateUser {
     type Error = PackageError;
 
-
     fn try_from(value: crate::input::CreateUser) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
         require_fields!(value, home);
-        Ok(CreateUser {
-            home,
-        })
+        Ok(CreateUser { home })
     }
 }
 
@@ -1109,7 +1291,6 @@ pub struct Alternative {
 
 impl TryFrom<crate::input::Alternative> for Alternative {
     type Error = PackageError;
-
 
     fn try_from(value: crate::input::Alternative) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
@@ -1164,8 +1345,9 @@ impl std::cmp::Ord for MigrationVersion {
             .expect("Failed to compare versions")
             .wait()
             .expect("Failed to compare versions")
-            .success() {
-                std::cmp::Ordering::Less
+            .success()
+        {
+            std::cmp::Ordering::Less
         } else {
             std::cmp::Ordering::Greater
         }
@@ -1202,7 +1384,8 @@ impl TryFrom<toml::Spanned<String>> for MigrationVersion {
         if output.status.success() {
             Ok(MigrationVersion(string))
         } else {
-            let err_message = String::from_utf8(output.stderr).expect("Failed to decode error message");
+            let err_message =
+                String::from_utf8(output.stderr).expect("Failed to decode error message");
             let error = MigrationVersionError {
                 error: MigrationVersionErrorInner::Invalid(err_message),
                 span,
@@ -1231,13 +1414,18 @@ impl fmt::Display for MigrationVersionError {
         // strip_prefix method is in str since 1.45, we support 1.34
         let strip_prefix = "dpkg: warning: ";
         match &self.error {
-            MigrationVersionErrorInner::BadPrefix(string) => write!(f, "invalid migration version '{}', the version must start with '<< '", string),
-            MigrationVersionErrorInner::Invalid(string) if string.starts_with(strip_prefix) => write!(f, "{}", &string[strip_prefix.len()..]),
+            MigrationVersionErrorInner::BadPrefix(string) => write!(
+                f,
+                "invalid migration version '{}', the version must start with '<< '",
+                string
+            ),
+            MigrationVersionErrorInner::Invalid(string) if string.starts_with(strip_prefix) => {
+                write!(f, "{}", &string[strip_prefix.len()..])
+            }
             MigrationVersionErrorInner::Invalid(string) => write!(f, "{}", string),
         }
     }
 }
-
 
 fn check_unknown_fields(unknown: Vec<toml::Spanned<String>>) -> Result<(), PackageError> {
     if unknown.is_empty() {

@@ -60,7 +60,7 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
         } else {
             writeln!(out, "Type=exec")?;
         }
-        write!(out, "ExecStart={}", instance.spec.binary)?;
+        write!(out, "ExecStart={}", instance.spec.binary.expand_to_cow(instance.constants_by_variant()))?;
         let conf_dir_name = if let Some(conf_dir) = &instance.spec.conf_d {
             if conf_dir.param.ends_with('=') {
                 write!(out, " {}/etc/{}/{}", conf_dir.param, instance.name, conf_dir.name)?;
