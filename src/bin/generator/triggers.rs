@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::{self, Write};
 use debcrafter::im_repr::{PackageInstance, ConfType, FileVar};
 use debcrafter::Set;
@@ -7,14 +8,14 @@ pub fn generate(instance: &PackageInstance, out: LazyCreateBuilder) -> io::Resul
     use debcrafter::im_repr::{PackageConfig, PackageOps};
 
     let mut dirs = Set::new();
-    let mut files_no_await = Set::new();
+    let mut files_no_await : BTreeSet<String> = Set::new();
     let mut files_await = Set::new();
     let mut configs_changed = Set::new();
 
     // A package needs triggers only if it's doing something "interesting".
     // Currently it's either being a service or having postprocess script.
     let needs_triggers = if let Some(instance) = instance.as_service() {
-        files_no_await.insert(instance.spec.binary.clone());
+        files_no_await.insert(instance.spec.binary.expand_to_cow(instance.constants_by_variant()).into());
         if let Some(conf_dir) = &instance.spec.conf_d {
             dirs.insert(format!("/etc/{}/{}", instance.name, conf_dir.name.trim_end_matches('/')));
         }

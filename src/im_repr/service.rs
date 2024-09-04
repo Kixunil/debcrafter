@@ -38,9 +38,9 @@ impl ConfParam {
 }
 
 pub struct ServicePackageSpec {
-    pub bin_package: String,
+    pub bin_package: TemplateString,
     pub min_patch: Option<String>,
-    pub binary: String,
+    pub binary: TemplateString,
     pub conf_param: Option<ConfParam>,
     pub conf_d: Option<ConfDir>,
     pub user: UserSpec,
