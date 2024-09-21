@@ -482,17 +482,23 @@ fn load_include<'a>(dir: &'a Path, name: &'a VPackageName, mut deps: FileDeps<'a
     }
 }
 
+fn validate_collection<Target, Validated, Source, Map>(collection: Option<Source>, validation: Map) -> Result<Target, PackageError>
+    where Source: IntoIterator + Default, Target: std::iter::FromIterator<Validated>, Map: FnMut(Source::Item) -> Result<Validated, PackageError>
+{
+    collection
+        .unwrap_or_default()
+        .into_iter()
+        .map(validation)
+        .collect()
+}
+
 impl TryFrom<crate::input::Package> for Package {
     type Error = PackageError;
 
     fn try_from(value: crate::input::Package) -> Result<Self, Self::Error> {
         check_unknown_fields(value.unknown)?;
 
-        let extra_groups = value.extra_groups
-            .unwrap_or_default()
-            .into_iter()
-            .map(|group| Ok((group.0, group.1.try_into()?)))
-            .collect::<Result<_, PackageError>>()?;
+        let extra_groups = validate_collection(value.extra_groups, |group| Ok((group.0, group.1.try_into()?)))?;
 
         let spec = match (value.architecture, value.bin_package, value.binary, value.user, value.extends) {
             (Some(architecture), None, None, None, None) => PackageSpec::Base(BasePackageSpec { architecture: architecture.into_inner(), }),
@@ -531,27 +537,13 @@ impl TryFrom<crate::input::Package> for Package {
             .map(|(version, migration)| Ok((version.try_into()?, migration.try_into()?)))
             .collect::<Result<_, PackageError>>()?;
 
-        let config = value.config.unwrap_or_default().into_iter()
-            .map(|(key, value)| Ok((key, value.try_into()?)))
-            .collect::<Result<_, PackageError>>()?;
+        let config = validate_collection(value.config, |(key, value)| Ok((key, value.try_into()?)))?;
 
-        let plug = value.plug
-            .unwrap_or_default()
-            .into_iter()
-            .map(TryFrom::try_from)
-            .collect::<Result<_, _>>()?;
+        let plug = validate_collection(value.plug, TryFrom::try_from)?;
 
-        let databases = value.databases
-            .unwrap_or_default()
-            .into_iter()
-            .map(|db| Ok((db.0, db.1.try_into()?)))
-            .collect::<Result<_, PackageError>>()?;
+        let databases = validate_collection(value.databases,|db| Ok((db.0, db.1.try_into()?)))?;
 
-        let alternatives = value.alternatives
-            .unwrap_or_default()
-            .into_iter()
-            .map(|alternative| Ok((alternative.0, alternative.1.try_into()?)))
-            .collect::<Result<_, PackageError>>()?;
+        let alternatives = validate_collection(value.alternatives, |alternative| Ok((alternative.0, alternative.1.try_into()?)))?;
 
         require_fields!(value, name);
         Ok(Package {
