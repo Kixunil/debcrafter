@@ -23,20 +23,18 @@ use crate::types::DynVarName;
 
 macro_rules! require_fields {
     ($struct:expr, $($field:ident),+ $(,)?) => {
-        {
-            let mut missing_fields = Vec::new();
-        $(
-            if $struct.$field.is_none() {
-                missing_fields.push(stringify!($field));
-            }
-        )+
-            if !missing_fields.is_empty() {
+        let ($($field,)+) = match ($($struct.$field,)+) {
+            ($(Some($field),)+) => ($($field,)+),
+            ($($field,)+) => {
+                let mut missing_fields = Vec::new();
+                $(
+                    if $field.is_none() {
+                        missing_fields.push(stringify!($field));
+                    }
+                )+
                 return Err(PackageError::MissingFields($struct.span, missing_fields));
-            }
-        }
-        $(
-            let $field = $struct.$field.unwrap();
-        )+
+            },
+        };
     }
 }
 
