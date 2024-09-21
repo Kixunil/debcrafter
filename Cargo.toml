@@ -14,7 +14,7 @@ void = "1"
 thiserror = "1.0.22"
 either = "1.6.1"
 indexmap = { version = "1.6.2", features = ["serde"] }
-fmt2io = "0.2.0"
+fmt2io = "1.0.0"
 rfc822-like = "0.2.0"
 codespan-reporting = "0.11.1"
 

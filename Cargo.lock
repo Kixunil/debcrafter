@@ -24,7 +24,7 @@ version = "0.2.0"
 dependencies = [
  "codespan-reporting",
  "either",
- "fmt2io",
+ "fmt2io 1.0.0",
  "indexmap",
  "lazy_static",
  "rfc822-like",
@@ -46,6 +46,12 @@ name = "fmt2io"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9404d2b1fefa46590726ba6c729bfb18ac6e2a2efdfb094aeb53df1c0436376f"
+
+[[package]]
+name = "fmt2io"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b6129284da9f7e5296cc22183a63f24300e945e297705dcc0672f7df01d62c8"
 
 [[package]]
 name = "hashbrown"
@@ -94,7 +100,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a56152ca812fd243ff8f464a70e8e39908f87a59f9cdd5dad4395ef52038a0b"
 dependencies = [
- "fmt2io",
+ "fmt2io 0.2.0",
  "serde",
  "thiserror",
  "unicode-segmentation",
